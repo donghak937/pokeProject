@@ -667,11 +667,11 @@ function BattleRoster({
         <span>상태</span>
       </div>
       <div className="roster-list">
-        {pokemon.map((mon) => {
+        {pokemon.slice(0, 6).map((mon, index) => {
           const isDown = knockedOut.has(mon.displayName);
           const isActive = activeName === mon.displayName && !isDown;
           return (
-            <article className={`roster-mon ${isActive ? "active" : ""} ${isDown ? "down" : ""}`} key={mon.name}>
+            <article className={`roster-mon ${isActive ? "active" : ""} ${isDown ? "down" : ""}`} key={`${mon.name}-${index}`}>
               <PokemonPortrait pokemon={mon} />
               <div>
                 <h5>{mon.displayName}</h5>
@@ -752,7 +752,7 @@ function simulateTournament(team: Pokemon[], playerMoves: MoveSet): MatchResult[
       return;
     }
 
-    const enemy = buildEnemyTeam(index);
+    const enemy = buildEnemyTeam(index).slice(0, 6);
     const projection = calculateWinProjection(team, enemy);
     const roll = Math.random();
     const win = roll <= projection.winRate;
@@ -816,14 +816,15 @@ function simulateOpponent(
   options: { leagueRegion?: string; revealRegion?: boolean } = {},
   playerMoves: MoveSet = {},
 ): MatchResult {
-  const projection = calculateWinProjection(team, enemy);
+  const enemyTeam = enemy.slice(0, 6);
+  const projection = calculateWinProjection(team, enemyTeam);
   const roll = Math.random();
   const win = roll <= projection.winRate;
   const opponentName = opponent?.name ?? "상대";
-  const battleLogs = createBattleFeed(team, enemy, win, {
+  const battleLogs = createBattleFeed(team, enemyTeam, win, {
     opponentName,
     playerMoves,
-    enemyMoves: buildMoveSet(enemy),
+    enemyMoves: buildMoveSet(enemyTeam),
   });
   const logs = opponent
     ? [
@@ -837,7 +838,7 @@ function simulateOpponent(
 
   return {
     round,
-    enemy,
+    enemy: enemyTeam,
     playerScore: projection.playerScore,
     enemyScore: projection.enemyScore,
     winRate: projection.winRate,
