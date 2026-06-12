@@ -139,19 +139,21 @@ function App() {
         </div>
       </section>
 
-      <section className="board">
-        <aside className="team-panel" aria-label="내 파티">
-          <div className="panel-heading">
-            <h2>내 파티</h2>
-            <span>{isRevealed ? `${Math.round(teamPower(team))}점` : "비공개"}</span>
-          </div>
-          <div className="team-slots">
-            {Array.from({ length: 6 }, (_, index) => {
-              const mon = team[index];
-              return mon ? <TeamSlot key={mon.name} pokemon={mon} /> : <EmptySlot key={index} index={index + 1} />;
-            })}
-          </div>
-        </aside>
+      <section className={matches.length > 0 ? "board battle-board" : "board"}>
+        {matches.length === 0 && (
+          <aside className="team-panel" aria-label="내 파티">
+            <div className="panel-heading">
+              <h2>내 파티</h2>
+              <span>{isRevealed ? `${Math.round(teamPower(team))}점` : "비공개"}</span>
+            </div>
+            <div className="team-slots">
+              {Array.from({ length: 6 }, (_, index) => {
+                const mon = team[index];
+                return mon ? <TeamSlot key={mon.name} pokemon={mon} /> : <EmptySlot key={index} index={index + 1} />;
+              })}
+            </div>
+          </aside>
+        )}
 
         {matches.length === 0 ? (
           <section className="draft-panel">
@@ -358,6 +360,14 @@ function MatchCard({
   hasNext: boolean;
   onNext: () => void;
 }) {
+  const logRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const node = logRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [visibleLogs.length]);
+
   if (match.skipped) {
     return (
       <article className="match">
@@ -390,7 +400,7 @@ function MatchCard({
             <span>전투 시뮬</span>
             <strong>{battleState.playerActive ?? "대기"} vs {battleState.enemyActive ?? "대기"}</strong>
           </div>
-          <div className="battle-log">
+          <div className="battle-log" ref={logRef}>
             {visibleLogs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
             {!isLogDone && <p className="typing">...</p>}
           </div>

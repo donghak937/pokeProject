@@ -152,6 +152,10 @@ h2 {
   align-items: start;
 }
 
+.battle-board {
+  grid-template-columns: 1fr;
+}
+
 .team-panel,
 .draft-panel,
 .tournament {
@@ -375,7 +379,7 @@ h2 {
 }
 
 .tournament {
-  min-height: 580px;
+  min-height: 640px;
   padding: 18px;
 }
 
@@ -537,8 +541,8 @@ h2 {
   display: grid;
   grid-template-columns: minmax(220px, 0.85fr) minmax(320px, 1.3fr) minmax(220px, 0.85fr);
   gap: 12px;
-  height: min(48vh, 440px);
-  min-height: 330px;
+  height: min(58vh, 560px);
+  min-height: 390px;
   margin-top: 10px;
   align-items: stretch;
 }
