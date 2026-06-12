@@ -416,7 +416,7 @@ function PokemonPortrait({ pokemon: mon, large = false }: { pokemon: Pokemon; la
     return (
       <div className={large ? "portrait" : "mark sprite-mark"} style={{ background: typeGradient(mon.types) }}>
         <span className="sprite-crop" aria-hidden="true">
-          <img src={mon.spriteUrl} alt="" loading="lazy" />
+          <img src={publicAssetUrl(mon.spriteUrl)} alt="" loading="lazy" />
         </span>
       </div>
     );
@@ -427,6 +427,13 @@ function PokemonPortrait({ pokemon: mon, large = false }: { pokemon: Pokemon; la
       {mon.mark}
     </div>
   );
+}
+
+function publicAssetUrl(path: string) {
+  if (/^https?:\/\//.test(path)) return path;
+  const base = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL.slice(0, -1) : import.meta.env.BASE_URL;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${normalizedPath}`;
 }
 
 function StatBar({ label, value, max }: { label: string; value: number; max: number }) {
