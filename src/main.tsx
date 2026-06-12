@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
@@ -122,6 +122,9 @@ function App() {
           </div>
         </section>
       )}
+      <footer className="asset-credit">
+        Pokemon sprites from PokeRogue assets. Non-commercial friends-only prototype.
+      </footer>
     </main>
   );
 }
@@ -141,7 +144,7 @@ function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokem
       <div>
         <PokemonPortrait pokemon={mon} large />
         <h3>{mon.name}</h3>
-        <div className="meta">Gen {mon.gen} {generationLabels[mon.gen]} · BST {mon.total}</div>
+        <div className="meta">Gen {mon.gen} {generationLabels[mon.gen]} 쨌 BST {mon.total}</div>
         <div className="type-row">{mon.types.map(typeChip)}</div>
         <div className="score-line">Draft score {Math.round(mon.score)}</div>
         <div className="stats">
@@ -163,7 +166,7 @@ function TeamSlot({ pokemon: mon }: { pokemon: Pokemon }) {
       <PokemonPortrait pokemon={mon} />
       <div>
         <h3>{mon.name}</h3>
-        <div className="meta">{mon.types.join(" / ")} · {Math.round(mon.score)} pts</div>
+        <div className="meta">{mon.types.join(" / ")} 쨌 {Math.round(mon.score)} pts</div>
       </div>
     </article>
   );
@@ -185,7 +188,9 @@ function PokemonPortrait({ pokemon: mon, large = false }: { pokemon: Pokemon; la
   if (mon.spriteUrl) {
     return (
       <div className={large ? "portrait" : "mark sprite-mark"} style={{ background: typeGradient(mon.types) }}>
-        <img src={mon.spriteUrl} alt="" loading="lazy" />
+        <span className="sprite-crop" aria-hidden="true">
+          <img src={mon.spriteUrl} alt="" loading="lazy" />
+        </span>
       </div>
     );
   }

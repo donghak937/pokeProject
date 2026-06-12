@@ -14,7 +14,9 @@ Useful references:
 
 ## Current Decision
 
-Keep sprite integration pluggable. The UI renders a letter badge now and automatically switches to pixel art when `spriteUrl` is supplied.
+Use PokeRogue Pokemon sprites for a non-commercial friends-only prototype. The app loads them from the public `beta` branch raw URLs and keeps the integration pluggable through `spriteUrl`.
+
+The PokeRogue Pokemon PNG files are animation sheets, so the UI crops the top-left frame for now instead of trying to run the full animation metadata.
 
 Before shipping publicly:
 

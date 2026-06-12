@@ -24,6 +24,7 @@ export type Generation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type Pokemon = {
   name: string;
+  dex: number;
   gen: Generation;
   types: TypeName[];
   total: number;
@@ -122,7 +123,76 @@ const seedPokemon = [
   p("Koraidon", 9, ["Fighting", "Dragon"], 670, 100, 135, 115, "K"),
 ] satisfies Pokemon[];
 
-export const pokemon = seedPokemon.map((mon) => ({ ...mon, score: monScore(mon) }));
+const pokerogueAssetBase = "https://raw.githubusercontent.com/pagefaultgames/pokerogue-assets/beta/images/pokemon";
+
+const dexNumbers: Record<string, number> = {
+  Venusaur: 3,
+  Charizard: 6,
+  Blastoise: 9,
+  Pikachu: 25,
+  Gengar: 94,
+  Dragonite: 149,
+  Mewtwo: 150,
+  Snorlax: 143,
+  Scizor: 212,
+  Tyranitar: 248,
+  Lugia: 249,
+  "Ho-Oh": 250,
+  Heracross: 214,
+  Kingdra: 230,
+  Sceptile: 254,
+  Blaziken: 257,
+  Swampert: 260,
+  Gardevoir: 282,
+  Metagross: 376,
+  Rayquaza: 384,
+  Torterra: 389,
+  Infernape: 392,
+  Empoleon: 395,
+  Garchomp: 445,
+  Lucario: 448,
+  Darkrai: 491,
+  Serperior: 497,
+  Emboar: 500,
+  Samurott: 503,
+  Zoroark: 571,
+  Volcarona: 637,
+  Hydreigon: 635,
+  Chesnaught: 652,
+  Delphox: 655,
+  Greninja: 658,
+  Talonflame: 663,
+  Aegislash: 681,
+  Xerneas: 716,
+  Decidueye: 724,
+  Incineroar: 727,
+  Primarina: 730,
+  Mimikyu: 778,
+  "Kommo-o": 784,
+  Solgaleo: 791,
+  Rillaboom: 812,
+  Cinderace: 815,
+  Inteleon: 818,
+  Corviknight: 823,
+  Dragapult: 887,
+  Zacian: 888,
+  Meowscarada: 908,
+  Skeledirge: 911,
+  Quaquaval: 914,
+  Tinkaton: 959,
+  Baxcalibur: 998,
+  Koraidon: 1007,
+};
+
+export const pokemon = seedPokemon.map((mon) => {
+  const dex = dexNumbers[mon.name];
+  return {
+    ...mon,
+    dex,
+    score: monScore(mon),
+    spriteUrl: `${pokerogueAssetBase}/${dex}.png`,
+  };
+});
 
 export function buildChoices(rule: DraftRule, team: Pokemon[]) {
   const pickedNames = new Set(team.map((mon) => mon.name));
@@ -165,7 +235,7 @@ function p(
   defense: number,
   mark: string,
 ): Pokemon {
-  return { name, gen, types, total, hp, attack, defense, mark, score: 0 };
+  return { name, dex: 0, gen, types, total, hp, attack, defense, mark, score: 0 };
 }
 
 function monScore(mon: Pick<Pokemon, "total" | "attack" | "defense" | "hp">) {
