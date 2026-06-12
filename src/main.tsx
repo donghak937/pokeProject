@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
 import { calculateWinProjection } from "./battle";
+import { indigoLeague, type LeagueOpponent } from "./leagues";
 import {
   buildChoices,
   buildEnemyTeam,
@@ -18,8 +19,10 @@ import {
 } from "./model";
 
 const rounds = ["16강", "8강", "4강", "결승"] as const;
+type GameMode = "random" | "champions";
 
 function App() {
+  const [mode, setMode] = React.useState<GameMode>("random");
   const [team, setTeam] = React.useState<Pokemon[]>([]);
   const [rule, setRule] = React.useState<DraftRule>(() => rollRule());
   const [choices, setChoices] = React.useState<Pokemon[]>(() => buildChoices(rule, []));
@@ -31,6 +34,7 @@ function App() {
   const isDrafting = team.length < 6;
   const isRevealed = matches.length > 0;
   const champion = matches.length > 0 && matches.every((match) => match.skipped || match.win);
+  const modeLabel = mode === "random" ? "랜덤 토너먼트" : "포챔스";
 
   function startRun() {
     const nextRule = rollRule();
@@ -45,7 +49,7 @@ function App() {
     setTeam(nextTeam);
 
     if (nextTeam.length >= 6) {
-      setMatches(simulateTournament(nextTeam));
+      setMatches(simulateRun(nextTeam, mode));
       return;
     }
 
@@ -55,7 +59,16 @@ function App() {
   }
 
   function simulateAgain() {
-    setMatches(simulateTournament(team));
+    setMatches(simulateRun(team, mode));
+  }
+
+  function changeMode(nextMode: GameMode) {
+    setMode(nextMode);
+    const nextRule = rollRule();
+    setTeam([]);
+    setMatches([]);
+    setRule(nextRule);
+    setChoices(buildChoices(nextRule, []));
   }
 
   return (
@@ -65,8 +78,17 @@ function App() {
           <p className="eyebrow">팬 드래프트 배틀</p>
           <h1>타입 드래프트 아레나</h1>
         </div>
+        <div className="mode-switch" aria-label="게임 모드">
+          <button className={mode === "random" ? "active" : ""} type="button" onClick={() => changeMode("random")}>
+            랜덤 토너먼트
+          </button>
+          <button className={mode === "champions" ? "active" : ""} type="button" onClick={() => changeMode("champions")}>
+            포챔스
+          </button>
+        </div>
         <div className="status-strip">
           <Status label="선택" value={isDrafting ? `${pickNumber} / 6` : "완성"} />
+          <Status label="모드" value={modeLabel} />
           <Status label="조건" value={`${rule.gen}세대 ${generationLabels[rule.gen]} · ${typeLabels[rule.type]}${ruleSuffix}`} />
           <button className="primary-action" type="button" onClick={startRun}>
             <RotateCcw size={18} />
@@ -112,8 +134,8 @@ function App() {
         <section className="tournament" aria-label="토너먼트 결과">
           <div className="tournament-heading">
             <div>
-              <p className="eyebrow">챔피언 도전</p>
-              <h2>{champion ? "우승 성공" : "탈락"}</h2>
+              <p className="eyebrow">{mode === "random" ? "챔피언 도전" : "포챔스 도전"}</p>
+              <h2>{champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락"}</h2>
             </div>
             <button className="primary-action" type="button" onClick={simulateAgain}>
               <Swords size={18} />
@@ -297,6 +319,10 @@ function rollRule(): DraftRule {
   return { gen, type };
 }
 
+function simulateRun(team: Pokemon[], mode: GameMode): MatchResult[] {
+  return mode === "random" ? simulateTournament(team) : simulateChampions(team);
+}
+
 function simulateTournament(team: Pokemon[]): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
@@ -327,6 +353,46 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
   });
 
   return matches;
+}
+
+function simulateChampions(team: Pokemon[]): MatchResult[] {
+  const matches: MatchResult[] = [];
+  let alive = true;
+
+  indigoLeague.forEach((opponent) => {
+    if (!alive) {
+      matches.push({ round: `${opponent.title} ${opponent.name}`, skipped: true });
+      return;
+    }
+
+    const match = simulateOpponent(team, opponent.team, `${opponent.title} ${opponent.name}`, opponent);
+    alive = !match.skipped && match.win;
+    matches.push(match);
+  });
+
+  return matches;
+}
+
+function simulateOpponent(team: Pokemon[], enemy: Pokemon[], round: string, opponent?: LeagueOpponent): MatchResult {
+  const projection = calculateWinProjection(team, enemy);
+  const roll = Math.random();
+  const win = roll <= projection.winRate;
+  const logs = opponent
+    ? [`상대 엔트리: ${opponent.name} (${opponent.title})`, ...projection.logs]
+    : projection.logs;
+
+  return {
+    round,
+    enemy,
+    playerScore: projection.playerScore,
+    enemyScore: projection.enemyScore,
+    winRate: projection.winRate,
+    roll,
+    win,
+    logs,
+    mvp: projection.mvp,
+    risk: projection.risk,
+  };
 }
 
 function randomItem<T>(items: T[]) {
