@@ -1,3 +1,5 @@
+import pokemonRows from "./data/pokemon.json";
+
 export const typeColors = {
   Normal: "#c7c1ad",
   Fire: "#ff9b54",
@@ -86,195 +88,10 @@ export const typeLabels: Record<TypeName, string> = {
   Fairy: "페어리",
 };
 
-const seedPokemon = [
-  p("Venusaur", 1, ["Grass", "Poison"], 525, 80, 82, 83, "V"),
-  p("Charizard", 1, ["Fire", "Flying"], 534, 78, 84, 78, "C"),
-  p("Blastoise", 1, ["Water"], 530, 79, 83, 100, "B"),
-  p("Pikachu", 1, ["Electric"], 320, 35, 55, 40, "P"),
-  p("Gengar", 1, ["Ghost", "Poison"], 500, 60, 65, 60, "G"),
-  p("Dragonite", 1, ["Dragon", "Flying"], 600, 91, 134, 95, "D"),
-  p("Mewtwo", 1, ["Psychic"], 680, 106, 110, 90, "M"),
-  p("Snorlax", 1, ["Normal"], 540, 160, 110, 65, "S"),
-  p("Scizor", 2, ["Bug", "Steel"], 500, 70, 130, 100, "S"),
-  p("Tyranitar", 2, ["Rock", "Dark"], 600, 100, 134, 110, "T"),
-  p("Lugia", 2, ["Psychic", "Flying"], 680, 106, 90, 130, "L"),
-  p("Ho-Oh", 2, ["Fire", "Flying"], 680, 106, 130, 90, "H"),
-  p("Heracross", 2, ["Bug", "Fighting"], 500, 80, 125, 75, "H"),
-  p("Kingdra", 2, ["Water", "Dragon"], 540, 75, 95, 95, "K"),
-  p("Sceptile", 3, ["Grass"], 530, 70, 85, 65, "S"),
-  p("Blaziken", 3, ["Fire", "Fighting"], 530, 80, 120, 70, "B"),
-  p("Swampert", 3, ["Water", "Ground"], 535, 100, 110, 90, "S"),
-  p("Gardevoir", 3, ["Psychic", "Fairy"], 518, 68, 65, 65, "G"),
-  p("Metagross", 3, ["Steel", "Psychic"], 600, 80, 135, 130, "M"),
-  p("Rayquaza", 3, ["Dragon", "Flying"], 680, 105, 150, 90, "R"),
-  p("Torterra", 4, ["Grass", "Ground"], 525, 95, 109, 105, "T"),
-  p("Infernape", 4, ["Fire", "Fighting"], 534, 76, 104, 71, "I"),
-  p("Empoleon", 4, ["Water", "Steel"], 530, 84, 86, 88, "E"),
-  p("Garchomp", 4, ["Dragon", "Ground"], 600, 108, 130, 95, "G"),
-  p("Lucario", 4, ["Fighting", "Steel"], 525, 70, 110, 70, "L"),
-  p("Darkrai", 4, ["Dark"], 600, 70, 90, 90, "D"),
-  p("Serperior", 5, ["Grass"], 528, 75, 75, 95, "S"),
-  p("Emboar", 5, ["Fire", "Fighting"], 528, 110, 123, 65, "E"),
-  p("Samurott", 5, ["Water"], 528, 95, 100, 85, "S"),
-  p("Zoroark", 5, ["Dark"], 510, 60, 105, 60, "Z"),
-  p("Volcarona", 5, ["Bug", "Fire"], 550, 85, 60, 65, "V"),
-  p("Hydreigon", 5, ["Dark", "Dragon"], 600, 92, 105, 90, "H"),
-  p("Chesnaught", 6, ["Grass", "Fighting"], 530, 88, 107, 122, "C"),
-  p("Delphox", 6, ["Fire", "Psychic"], 534, 75, 69, 72, "D"),
-  p("Greninja", 6, ["Water", "Dark"], 530, 72, 95, 67, "G"),
-  p("Talonflame", 6, ["Fire", "Flying"], 499, 78, 81, 71, "T"),
-  p("Aegislash", 6, ["Steel", "Ghost"], 520, 60, 50, 140, "A"),
-  p("Xerneas", 6, ["Fairy"], 680, 126, 131, 95, "X"),
-  p("Decidueye", 7, ["Grass", "Ghost"], 530, 78, 107, 75, "D"),
-  p("Incineroar", 7, ["Fire", "Dark"], 530, 95, 115, 90, "I"),
-  p("Primarina", 7, ["Water", "Fairy"], 530, 80, 74, 74, "P"),
-  p("Mimikyu", 7, ["Ghost", "Fairy"], 476, 55, 90, 80, "M"),
-  p("Kommo-o", 7, ["Dragon", "Fighting"], 600, 75, 110, 125, "K"),
-  p("Solgaleo", 7, ["Psychic", "Steel"], 680, 137, 137, 107, "S"),
-  p("Rillaboom", 8, ["Grass"], 530, 100, 125, 90, "R"),
-  p("Cinderace", 8, ["Fire"], 530, 80, 116, 75, "C"),
-  p("Inteleon", 8, ["Water"], 530, 70, 85, 65, "I"),
-  p("Corviknight", 8, ["Flying", "Steel"], 495, 98, 87, 105, "C"),
-  p("Dragapult", 8, ["Dragon", "Ghost"], 600, 88, 120, 75, "D"),
-  p("Zacian", 8, ["Fairy", "Steel"], 670, 92, 130, 115, "Z"),
-  p("Meowscarada", 9, ["Grass", "Dark"], 530, 76, 110, 70, "M"),
-  p("Skeledirge", 9, ["Fire", "Ghost"], 530, 104, 75, 100, "S"),
-  p("Quaquaval", 9, ["Water", "Fighting"], 530, 85, 120, 80, "Q"),
-  p("Tinkaton", 9, ["Fairy", "Steel"], 506, 85, 75, 77, "T"),
-  p("Baxcalibur", 9, ["Dragon", "Ice"], 600, 115, 145, 92, "B"),
-  p("Koraidon", 9, ["Fighting", "Dragon"], 670, 100, 135, 115, "K"),
-] satisfies Pokemon[];
-
-const spriteAssetBase = "/pokemon-sprites";
-
-const dexNumbers: Record<string, number> = {
-  Venusaur: 3,
-  Charizard: 6,
-  Blastoise: 9,
-  Pikachu: 25,
-  Gengar: 94,
-  Dragonite: 149,
-  Mewtwo: 150,
-  Snorlax: 143,
-  Scizor: 212,
-  Tyranitar: 248,
-  Lugia: 249,
-  "Ho-Oh": 250,
-  Heracross: 214,
-  Kingdra: 230,
-  Sceptile: 254,
-  Blaziken: 257,
-  Swampert: 260,
-  Gardevoir: 282,
-  Metagross: 376,
-  Rayquaza: 384,
-  Torterra: 389,
-  Infernape: 392,
-  Empoleon: 395,
-  Garchomp: 445,
-  Lucario: 448,
-  Darkrai: 491,
-  Serperior: 497,
-  Emboar: 500,
-  Samurott: 503,
-  Zoroark: 571,
-  Volcarona: 637,
-  Hydreigon: 635,
-  Chesnaught: 652,
-  Delphox: 655,
-  Greninja: 658,
-  Talonflame: 663,
-  Aegislash: 681,
-  Xerneas: 716,
-  Decidueye: 724,
-  Incineroar: 727,
-  Primarina: 730,
-  Mimikyu: 778,
-  "Kommo-o": 784,
-  Solgaleo: 791,
-  Rillaboom: 812,
-  Cinderace: 815,
-  Inteleon: 818,
-  Corviknight: 823,
-  Dragapult: 887,
-  Zacian: 888,
-  Meowscarada: 908,
-  Skeledirge: 911,
-  Quaquaval: 914,
-  Tinkaton: 959,
-  Baxcalibur: 998,
-  Koraidon: 1007,
-};
-
-const koreanNames: Record<string, string> = {
-  Venusaur: "이상해꽃",
-  Charizard: "리자몽",
-  Blastoise: "거북왕",
-  Pikachu: "피카츄",
-  Gengar: "팬텀",
-  Dragonite: "망나뇽",
-  Mewtwo: "뮤츠",
-  Snorlax: "잠만보",
-  Scizor: "핫삼",
-  Tyranitar: "마기라스",
-  Lugia: "루기아",
-  "Ho-Oh": "칠색조",
-  Heracross: "헤라크로스",
-  Kingdra: "킹드라",
-  Sceptile: "나무킹",
-  Blaziken: "번치코",
-  Swampert: "대짱이",
-  Gardevoir: "가디안",
-  Metagross: "메타그로스",
-  Rayquaza: "레쿠쟈",
-  Torterra: "토대부기",
-  Infernape: "초염몽",
-  Empoleon: "엠페르트",
-  Garchomp: "한카리아스",
-  Lucario: "루카리오",
-  Darkrai: "다크라이",
-  Serperior: "샤로다",
-  Emboar: "염무왕",
-  Samurott: "대검귀",
-  Zoroark: "조로아크",
-  Volcarona: "불카모스",
-  Hydreigon: "삼삼드래",
-  Chesnaught: "브리가론",
-  Delphox: "마폭시",
-  Greninja: "개굴닌자",
-  Talonflame: "파이어로",
-  Aegislash: "킬가르도",
-  Xerneas: "제르네아스",
-  Decidueye: "모크나이퍼",
-  Incineroar: "어흥염",
-  Primarina: "누리레느",
-  Mimikyu: "따라큐",
-  "Kommo-o": "짜랑고우거",
-  Solgaleo: "솔가레오",
-  Rillaboom: "고릴타",
-  Cinderace: "에이스번",
-  Inteleon: "인텔리레온",
-  Corviknight: "아머까오",
-  Dragapult: "드래펄트",
-  Zacian: "자시안",
-  Meowscarada: "마스카나",
-  Skeledirge: "라우드본",
-  Quaquaval: "웨이니발",
-  Tinkaton: "두드리짱",
-  Baxcalibur: "드닐레이브",
-  Koraidon: "코라이돈",
-};
-
-export const pokemon = seedPokemon.map((mon) => {
-  const dex = dexNumbers[mon.name];
-  return {
-    ...mon,
-    dex,
-    displayName: koreanNames[mon.name] ?? mon.name,
-    score: monScore(mon),
-    spriteUrl: `${spriteAssetBase}/${dex}.png`,
-  };
-});
+export const pokemon = (pokemonRows as Pokemon[]).map((mon) => ({
+  ...mon,
+  score: monScore(mon),
+}));
 
 export function buildChoices(rule: DraftRule, team: Pokemon[]) {
   const pickedNames = new Set(team.map((mon) => mon.name));
@@ -282,9 +99,17 @@ export function buildChoices(rule: DraftRule, team: Pokemon[]) {
     (mon) => mon.gen === rule.gen && mon.types.includes(rule.type) && !pickedNames.has(mon.name),
   );
 
-  if (pool.length < 5) pool = pokemon.filter((mon) => mon.types.includes(rule.type) && !pickedNames.has(mon.name));
-  if (pool.length < 5) pool = pokemon.filter((mon) => mon.gen === rule.gen && !pickedNames.has(mon.name));
-  if (pool.length < 5) pool = pokemon.filter((mon) => !pickedNames.has(mon.name));
+  if (pool.length < 5) {
+    pool = pokemon.filter((mon) => mon.types.includes(rule.type) && !pickedNames.has(mon.name));
+  }
+
+  if (pool.length < 5) {
+    pool = pokemon.filter((mon) => mon.gen === rule.gen && !pickedNames.has(mon.name));
+  }
+
+  if (pool.length < 5) {
+    pool = pokemon.filter((mon) => !pickedNames.has(mon.name));
+  }
 
   return shuffle(pool).slice(0, 5);
 }
@@ -305,19 +130,6 @@ export function typeGradient(types: TypeName[]) {
   const first = typeColors[types[0]];
   const second = typeColors[types[1]] ?? "#ffffff";
   return `radial-gradient(circle, rgba(255,255,255,.24), transparent 58%), linear-gradient(135deg, ${first}, ${second})`;
-}
-
-function p(
-  name: string,
-  gen: Generation,
-  types: TypeName[],
-  total: number,
-  hp: number,
-  attack: number,
-  defense: number,
-  mark: string,
-): Pokemon {
-  return { name, displayName: name, dex: 0, gen, types, total, hp, attack, defense, mark, score: 0 };
 }
 
 function monScore(mon: Pick<Pokemon, "total" | "attack" | "defense" | "hp">) {

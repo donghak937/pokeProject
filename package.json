@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "data:generate": "node scripts/generate-pokemon-data.mjs",
+    "sprites:extract": "powershell -ExecutionPolicy Bypass -File scripts/extract-pokerogue-sprites.ps1",
     "preview": "vite preview"
   },
   "keywords": [],
