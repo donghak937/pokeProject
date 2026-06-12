@@ -188,6 +188,7 @@ function App() {
           {activeMatch && (
             <MatchCard
               match={activeMatch}
+              team={team}
               visibleLogs={activeLogs}
               isLogDone={isLogDone}
               hasNext={activeMatchIndex < matches.length - 1}
@@ -344,12 +345,14 @@ function BattleProgress({ matches, activeIndex }: { matches: MatchResult[]; acti
 
 function MatchCard({
   match,
+  team,
   visibleLogs,
   isLogDone,
   hasNext,
   onNext,
 }: {
   match: MatchResult;
+  team: Pokemon[];
   visibleLogs: string[];
   isLogDone: boolean;
   hasNext: boolean;
@@ -364,6 +367,8 @@ function MatchCard({
     );
   }
 
+  const battleState = getBattleState(team, match.enemy, visibleLogs);
+
   return (
     <article className="match active-match">
       <div className="match-top">
@@ -373,10 +378,30 @@ function MatchCard({
         </div>
         {isLogDone && <p className={match.win ? "win" : "lose"}>{match.win ? "승리" : "패배"}</p>}
       </div>
-      <p className="meta">상대 엔트리: {match.enemy.map((mon) => mon.displayName).join(", ")}</p>
-      <div className="battle-log">
-        {visibleLogs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
-        {!isLogDone && <p className="typing">...</p>}
+      <div className="battle-stage">
+        <BattleRoster
+          title="내 파티"
+          pokemon={team}
+          activeName={battleState.playerActive}
+          knockedOut={battleState.knockedOut}
+        />
+        <div className="battle-console" aria-live="polite">
+          <div className="console-heading">
+            <span>전투 시뮬</span>
+            <strong>{battleState.playerActive ?? "대기"} vs {battleState.enemyActive ?? "대기"}</strong>
+          </div>
+          <div className="battle-log">
+            {visibleLogs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+            {!isLogDone && <p className="typing">...</p>}
+          </div>
+        </div>
+        <BattleRoster
+          title="상대 파티"
+          pokemon={match.enemy}
+          activeName={battleState.enemyActive}
+          knockedOut={battleState.knockedOut}
+          align="right"
+        />
       </div>
       {isLogDone && (
         <div className="match-analysis">
@@ -391,6 +416,84 @@ function MatchCard({
       )}
     </article>
   );
+}
+
+function BattleRoster({
+  title,
+  pokemon,
+  activeName,
+  knockedOut,
+  align = "left",
+}: {
+  title: string;
+  pokemon: Pokemon[];
+  activeName?: string;
+  knockedOut: Set<string>;
+  align?: "left" | "right";
+}) {
+  return (
+    <div className={`battle-roster ${align === "right" ? "right" : ""}`}>
+      <div className="roster-heading">
+        <h4>{title}</h4>
+        <span>상태</span>
+      </div>
+      <div className="roster-list">
+        {pokemon.map((mon) => {
+          const isDown = knockedOut.has(mon.displayName);
+          const isActive = activeName === mon.displayName && !isDown;
+          return (
+            <article className={`roster-mon ${isActive ? "active" : ""} ${isDown ? "down" : ""}`} key={mon.name}>
+              <PokemonPortrait pokemon={mon} />
+              <div>
+                <h5>{mon.displayName}</h5>
+                <p>{mon.types.map((type) => typeLabels[type]).join(" / ")}</p>
+              </div>
+              <span className="state-badge">{isDown ? "다운" : isActive ? "출전" : "대기"}</span>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function getBattleState(team: Pokemon[], enemy: Pokemon[], visibleLogs: string[]) {
+  const knockedOut = new Set<string>();
+  let playerActive: string | undefined = team[0]?.displayName;
+  let enemyActive: string | undefined = enemy[0]?.displayName;
+
+  visibleLogs.forEach((line) => {
+    [...team, ...enemy].forEach((mon) => {
+      if (line.includes(`${mon.displayName} 다운!`)) {
+        knockedOut.add(mon.displayName);
+      }
+    });
+
+    team.forEach((mon) => {
+      if (
+        line.includes(`내 선봉 ${mon.displayName}`) ||
+        line.includes(`내 파티, ${mon.displayName} 등장`) ||
+        line.includes(`에서 ${mon.displayName} 교체`)
+      ) {
+        playerActive = mon.displayName;
+      }
+    });
+
+    enemy.forEach((mon) => {
+      if (
+        line.includes(`선봉 ${mon.displayName}`) ||
+        line.includes(`${mon.displayName} 등장`) ||
+        line.includes(`에서 ${mon.displayName} 교체`)
+      ) {
+        enemyActive = mon.displayName;
+      }
+    });
+  });
+
+  if (playerActive && knockedOut.has(playerActive)) playerActive = undefined;
+  if (enemyActive && knockedOut.has(enemyActive)) enemyActive = undefined;
+
+  return { knockedOut, playerActive, enemyActive };
 }
 
 function typeChip(type: Pokemon["types"][number]) {
