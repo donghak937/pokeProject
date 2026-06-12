@@ -54,6 +54,11 @@ rows.forEach((row) => {
       power: move.power,
       accuracy: move.accuracy,
       pp: move.pp,
+      target: move.target.name,
+      statChanges: move.stat_changes.map((entry) => ({
+        stat: entry.stat.name,
+        change: entry.change,
+      })),
     }))
     .filter((move, index, pool) => pool.findIndex((item) => item.name === move.name) === index)
     .sort((a, b) => moveRank(b) - moveRank(a));

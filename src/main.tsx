@@ -21,6 +21,8 @@ import {
 
 const rounds = ["16강", "8강", "4강", "결승"] as const;
 type GameMode = "random" | "champions";
+const logSpeeds = [0.5, 0.75, 1, 1.5, 2] as const;
+type LogSpeed = (typeof logSpeeds)[number];
 
 function App() {
   const [mode, setMode] = React.useState<GameMode>("random");
@@ -32,6 +34,7 @@ function App() {
   const [visibleLogCount, setVisibleLogCount] = React.useState(1);
   const [teamMoves, setTeamMoves] = React.useState<Record<string, BattleMove[]>>({});
   const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
+  const [logSpeed, setLogSpeed] = React.useState<LogSpeed>(1);
 
   const pickNumber = team.length + 1;
   const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
@@ -62,10 +65,10 @@ function App() {
 
     const timer = window.setTimeout(() => {
       setVisibleLogCount((count) => Math.min(count + 1, activeMatch.logs.length));
-    }, 680);
+    }, 680 / logSpeed);
 
     return () => window.clearTimeout(timer);
-  }, [activeMatch, visibleLogCount]);
+  }, [activeMatch, visibleLogCount, logSpeed]);
 
   function startRun() {
     const nextRule = rollRule();
@@ -204,6 +207,13 @@ function App() {
               <div>
                 <p className="eyebrow">{mode === "random" ? "챔피언 도전" : "포챔스 도전"}</p>
                 <h2>{runEnded ? (champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락") : "도전 진행 중"}</h2>
+              </div>
+              <div className="speed-control" aria-label="로그 속도">
+                {logSpeeds.map((speed) => (
+                  <button className={logSpeed === speed ? "active" : ""} key={speed} type="button" onClick={() => setLogSpeed(speed)}>
+                    {speed}배
+                  </button>
+                ))}
               </div>
               <button className="primary-action" type="button" onClick={simulateAgain}>
                 <Swords size={18} />
@@ -419,6 +429,7 @@ function MovePill({ move }: { move: BattleMove }) {
       </div>
       <p>
         {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"} · 명중 {move.accuracy ?? "-"} · PP {move.pp ?? "-"}
+        {formatMoveStatChanges(move)}
       </p>
     </article>
   );
@@ -764,6 +775,25 @@ function moveCategoryLabel(category: BattleMove["category"]) {
   if (category === "physical") return "물리";
   if (category === "special") return "특수";
   return "변화";
+}
+
+function formatMoveStatChanges(move: BattleMove) {
+  const changes = (move.statChanges ?? [])
+    .filter((change) => change.change !== 0)
+    .map((change) => `${moveStatLabel(change.stat)} ${change.change > 0 ? "+" : ""}${change.change}`);
+
+  return changes.length > 0 ? ` · 랭크 ${changes.join(", ")}` : "";
+}
+
+function moveStatLabel(stat: string) {
+  if (stat === "attack") return "공격";
+  if (stat === "defense") return "방어";
+  if (stat === "special-attack") return "특공";
+  if (stat === "special-defense") return "특방";
+  if (stat === "speed") return "스피드";
+  if (stat === "accuracy") return "명중";
+  if (stat === "evasion") return "회피";
+  return stat;
 }
 
 function withBattleParticle(label: string) {

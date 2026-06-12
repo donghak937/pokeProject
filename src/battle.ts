@@ -27,6 +27,8 @@ type PairScore = {
 };
 
 type AttackMode = "physical" | "special";
+type BattleStat = "attack" | "defense" | "specialAttack" | "specialDefense" | "speed";
+type BattleStages = Record<BattleStat, number>;
 
 export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinProjection {
   const playerPairs = scorePairs(team, enemy);
@@ -70,6 +72,7 @@ export function createBattleFeed(
   const playerBench = team.slice(1);
   const enemyBench = enemy.slice(1);
   const hp = new Map<string, number>([...team, ...enemy].map((mon) => [mon.name, 100]));
+  const stages = new Map<string, BattleStages>([...team, ...enemy].map((mon) => [mon.name, emptyStages()]));
 
   logs.push(`배틀 시작! 내 선봉 ${playerActive.displayName}, ${opponentName} 선봉 ${enemyActive.displayName}.`);
 
@@ -93,7 +96,7 @@ export function createBattleFeed(
       playerActive = playerSwitch;
     }
 
-    const firstSide = playerActive.speed >= enemyActive.speed ? "player" : "enemy";
+    const firstSide = modifiedStat(playerActive, "speed", stages) >= modifiedStat(enemyActive, "speed", stages) ? "player" : "enemy";
     const actions = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
 
     for (const side of actions) {
@@ -102,7 +105,17 @@ export function createBattleFeed(
       const defender = side === "player" ? enemyActive : playerActive;
       const moveSet = side === "player" ? options.playerMoves : options.enemyMoves;
       const bias = side === "player" === playerWins ? 1.08 : 0.88;
-      const result = calculateMoveDamage(attacker, defender, moveSet?.[attacker.name], bias);
+      const boostMove = chooseBoostMove(attacker, moveSet?.[attacker.name], stages, bias);
+      if (boostMove) {
+        logs.push(applyBoostMove(attacker, boostMove, stages));
+        continue;
+      }
+
+      const result = calculateMoveDamage(attacker, defender, moveSet?.[attacker.name], bias, stages);
+      if (result.missed) {
+        logs.push(formatMoveDamage(attacker, defender, result, hp.get(defender.name) ?? 100));
+        continue;
+      }
       const nextHp = Math.max(0, Math.round((hp.get(defender.name) ?? 100) - result.damage));
       hp.set(defender.name, nextHp);
       logs.push(formatMoveDamage(attacker, defender, result, nextHp));
@@ -121,14 +134,14 @@ export function createBattleFeed(
   }
 
   if (playerWins && playerActive && enemyActive) {
-    const result = calculateMoveDamage(playerActive, enemyActive, options.playerMoves?.[playerActive.name], 1.25);
+    const result = calculateMoveDamage(playerActive, enemyActive, options.playerMoves?.[playerActive.name], 1.25, stages);
     logs.push(formatMoveDamage(playerActive, enemyActive, result, 0));
     logs.push(`${enemyActive.displayName} 다운!`);
     enemyActive = undefined;
   }
 
   if (!playerWins && playerActive && enemyActive) {
-    const result = calculateMoveDamage(enemyActive, playerActive, options.enemyMoves?.[enemyActive.name], 1.25);
+    const result = calculateMoveDamage(enemyActive, playerActive, options.enemyMoves?.[enemyActive.name], 1.25, stages);
     logs.push(formatMoveDamage(enemyActive, playerActive, result, 0));
     logs.push(`${playerActive.displayName} 다운!`);
     playerActive = undefined;
@@ -268,40 +281,141 @@ function attackModeLabel(mode: AttackMode) {
   return mode === "physical" ? "물리 우세" : "특수 우세";
 }
 
-function calculateMoveDamage(attacker: Pokemon, defender: Pokemon, moves: BattleMove[] | undefined, bias: number) {
+function calculateMoveDamage(
+  attacker: Pokemon,
+  defender: Pokemon,
+  moves: BattleMove[] | undefined,
+  bias: number,
+  stages?: Map<string, BattleStages>,
+) {
   const move = chooseBestMove(attacker, defender, moves);
   if (!move) {
     return {
       move: undefined,
       damage: clamp(Math.round((duelScore(attacker, defender) / 38) * bias), 8, 34),
       multiplier: bestAttackMultiplier(attacker.types, defender.types),
+      missed: false,
     };
   }
 
   const multiplier = bestAttackMultiplier([move.type], defender.types);
   const stab = attacker.types.includes(move.type) ? 1.5 : 1;
   const attackStat =
-    move.category === "physical" ? attacker.attack : move.category === "special" ? attacker.specialAttack : Math.max(attacker.attack, attacker.specialAttack) * 0.6;
+    move.category === "physical"
+      ? modifiedStat(attacker, "attack", stages)
+      : move.category === "special"
+        ? modifiedStat(attacker, "specialAttack", stages)
+        : Math.max(modifiedStat(attacker, "attack", stages), modifiedStat(attacker, "specialAttack", stages)) * 0.6;
   const defenseStat =
-    move.category === "physical" ? defender.defense : move.category === "special" ? defender.specialDefense : Math.max(defender.defense, defender.specialDefense);
+    move.category === "physical"
+      ? modifiedStat(defender, "defense", stages)
+      : move.category === "special"
+        ? modifiedStat(defender, "specialDefense", stages)
+        : Math.max(modifiedStat(defender, "defense", stages), modifiedStat(defender, "specialDefense", stages));
   const power = move.power ?? 25;
   const accuracy = (move.accuracy ?? 100) / 100;
+  if (Math.random() > accuracy) {
+    return { move, damage: 0, multiplier, missed: true };
+  }
+
   const randomFactor = 0.88 + Math.random() * 0.16;
-  const raw = ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * accuracy) / Math.max(40, defender.hp)) * 18;
+  const raw = ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier) / Math.max(40, defender.hp)) * 18;
   const damage = clamp(Math.round(raw * randomFactor * bias), multiplier >= 2 ? 12 : 4, multiplier >= 4 ? 88 : 68);
 
-  return { move, damage, multiplier };
+  return { move, damage, multiplier, missed: false };
 }
 
 function formatMoveDamage(
   attacker: Pokemon,
   defender: Pokemon,
-  result: { move?: BattleMove; damage: number; multiplier: number },
+  result: { move?: BattleMove; damage: number; multiplier: number; missed?: boolean },
   nextHp: number,
 ) {
   const moveName = result.move?.displayName ?? `${bestAttackLabel(attacker, defender)} 공격`;
+  if (result.missed) {
+    return `${attacker.displayName}의 ${moveName}! 그러나 빗나갔다!`;
+  }
+
   const effectText = formatEffectText(result.multiplier);
   return `${attacker.displayName}의 ${moveName}! ${effectText}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${nextHp}%.`;
+}
+
+function chooseBoostMove(
+  attacker: Pokemon,
+  moves: BattleMove[] | undefined,
+  stages: Map<string, BattleStages>,
+  bias: number,
+) {
+  const currentStages = stages.get(attacker.name) ?? emptyStages();
+  const boostMoves = (moves ?? []).filter((move) =>
+    move.category === "status" &&
+    (move.target === "user" || move.target === "users-field") &&
+    (move.statChanges ?? []).some((change) => toBattleStat(change.stat) && change.change > 0),
+  );
+  if (boostMoves.length === 0) return undefined;
+
+  const alreadyBoosted = Object.values(currentStages).reduce((sum, value) => sum + Math.max(0, value), 0);
+  if (alreadyBoosted >= 4) return undefined;
+
+  const chance = bias >= 1 ? 0.28 : 0.14;
+  if (Math.random() > chance) return undefined;
+  return randomItem(boostMoves);
+}
+
+function applyBoostMove(attacker: Pokemon, move: BattleMove, stages: Map<string, BattleStages>) {
+  const currentStages = stages.get(attacker.name) ?? emptyStages();
+  const changedLabels: string[] = [];
+
+  for (const change of move.statChanges ?? []) {
+    const stat = toBattleStat(change.stat);
+    if (!stat || change.change <= 0) continue;
+    const before = currentStages[stat];
+    currentStages[stat] = clamp(before + change.change, -6, 6);
+    if (currentStages[stat] !== before) {
+      changedLabels.push(`${battleStatLabel(stat)} ${change.change >= 2 ? "크게 " : ""}상승`);
+    }
+  }
+
+  stages.set(attacker.name, currentStages);
+  return `${attacker.displayName}의 ${move.displayName}! ${changedLabels.length > 0 ? changedLabels.join(", ") : "기세를 끌어올렸다"}.`;
+}
+
+function emptyStages(): BattleStages {
+  return {
+    attack: 0,
+    defense: 0,
+    specialAttack: 0,
+    specialDefense: 0,
+    speed: 0,
+  };
+}
+
+function modifiedStat(mon: Pokemon, stat: BattleStat, stages?: Map<string, BattleStages>) {
+  const base = mon[stat];
+  const stage = stages?.get(mon.name)?.[stat] ?? 0;
+  return base * stageMultiplier(stage);
+}
+
+function stageMultiplier(stage: number) {
+  if (stage >= 0) return (2 + stage) / 2;
+  return 2 / (2 - stage);
+}
+
+function toBattleStat(stat: string): BattleStat | undefined {
+  if (stat === "attack") return "attack";
+  if (stat === "defense") return "defense";
+  if (stat === "special-attack") return "specialAttack";
+  if (stat === "special-defense") return "specialDefense";
+  if (stat === "speed") return "speed";
+  return undefined;
+}
+
+function battleStatLabel(stat: BattleStat) {
+  if (stat === "attack") return "공격";
+  if (stat === "defense") return "방어";
+  if (stat === "specialAttack") return "특공";
+  if (stat === "specialDefense") return "특방";
+  return "스피드";
 }
 
 function chooseBestMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[] = []) {
@@ -375,6 +489,10 @@ function average(values: number[]) {
 
 function maxBy<T>(items: T[], score: (item: T) => number) {
   return items.reduce((best, item) => (score(item) > score(best) ? item : best));
+}
+
+function randomItem<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
 function clamp(value: number, min: number, max: number) {

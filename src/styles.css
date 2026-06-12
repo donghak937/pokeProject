@@ -145,6 +145,31 @@ h2 {
   font-weight: 900;
 }
 
+.speed-control {
+  display: inline-grid;
+  grid-template-columns: repeat(5, auto);
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 21, 28, 0.6);
+}
+
+.speed-control button {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 1000;
+}
+
+.speed-control button.active {
+  background: var(--accent);
+  color: #17120a;
+}
+
 .board {
   display: grid;
   grid-template-columns: 320px 1fr;

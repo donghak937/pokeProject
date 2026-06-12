@@ -33,6 +33,11 @@ export type BattleMove = {
   power: number | null;
   accuracy: number | null;
   pp: number | null;
+  target?: string;
+  statChanges?: Array<{
+    stat: string;
+    change: number;
+  }>;
 };
 
 export type Pokemon = {
