@@ -61,7 +61,6 @@ export type Pokemon = {
 
 export type DraftRule = {
   gen: Generation;
-  type: TypeName;
 };
 
 export type MatchResult =
@@ -122,17 +121,7 @@ export const pokemon = (pokemonRows as Pokemon[]).map((mon) => ({
 
 export function buildChoices(rule: DraftRule, team: Pokemon[]) {
   const pickedNames = new Set(team.map((mon) => mon.name));
-  let pool = pokemon.filter(
-    (mon) => mon.gen === rule.gen && mon.types.includes(rule.type) && !pickedNames.has(mon.name),
-  );
-
-  if (pool.length < 5) {
-    pool = pokemon.filter((mon) => mon.types.includes(rule.type) && !pickedNames.has(mon.name));
-  }
-
-  if (pool.length < 5) {
-    pool = pokemon.filter((mon) => mon.gen === rule.gen && !pickedNames.has(mon.name));
-  }
+  let pool = pokemon.filter((mon) => mon.gen === rule.gen && !pickedNames.has(mon.name));
 
   if (pool.length < 5) {
     pool = pokemon.filter((mon) => !pickedNames.has(mon.name));

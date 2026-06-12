@@ -33,12 +33,13 @@ function App() {
   const [activeMatchIndex, setActiveMatchIndex] = React.useState(0);
   const [visibleLogCount, setVisibleLogCount] = React.useState(1);
   const [teamMoves, setTeamMoves] = React.useState<Record<string, BattleMove[]>>({});
+  const [choiceMoves, setChoiceMoves] = React.useState<Record<string, BattleMove[]>>({});
   const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
   const [logSpeed, setLogSpeed] = React.useState<LogSpeed>(1);
+  const [sameGenRerolls, setSameGenRerolls] = React.useState(2);
+  const [wildRerolls, setWildRerolls] = React.useState(2);
 
   const pickNumber = team.length + 1;
-  const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
-  const ruleSuffix = exactMatches < choices.length ? " + 와일드카드" : "";
   const isDrafting = team.length < 6;
   const activeMatch = matches[activeMatchIndex];
   const activeLogs = activeMatch && !activeMatch.skipped ? activeMatch.logs.slice(0, visibleLogCount) : [];
@@ -61,6 +62,10 @@ function App() {
   }, [matches, activeMatchIndex]);
 
   React.useEffect(() => {
+    setChoiceMoves(buildMoveSet(choices));
+  }, [choices]);
+
+  React.useEffect(() => {
     if (!activeMatch || activeMatch.skipped || visibleLogCount >= activeMatch.logs.length) return;
 
     const timer = window.setTimeout(() => {
@@ -72,14 +77,18 @@ function App() {
 
   function startRun() {
     const nextRule = rollRule();
+    const nextChoices = buildChoices(nextRule, []);
     setTeam([]);
     setMatches([]);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
+    setChoiceMoves(buildMoveSet(nextChoices));
     setSelectedMovePokemon(null);
+    setSameGenRerolls(2);
+    setWildRerolls(2);
     setRule(nextRule);
-    setChoices(buildChoices(nextRule, []));
+    setChoices(nextChoices);
   }
 
   function pickPokemon(mon: Pokemon) {
@@ -87,7 +96,7 @@ function App() {
     setTeam(nextTeam);
     setTeamMoves((current) => ({
       ...current,
-      [mon.name]: current[mon.name] ?? rollMoves(mon),
+      [mon.name]: current[mon.name] ?? choiceMoves[mon.name] ?? rollMoves(mon),
     }));
     setSelectedMovePokemon(mon.name);
 
@@ -98,8 +107,12 @@ function App() {
     }
 
     const nextRule = rollRule();
+    const nextChoices = buildChoices(nextRule, nextTeam);
     setRule(nextRule);
-    setChoices(buildChoices(nextRule, nextTeam));
+    setChoices(nextChoices);
+    setChoiceMoves(buildMoveSet(nextChoices));
+    setSameGenRerolls(2);
+    setWildRerolls(2);
   }
 
   function simulateAgain() {
@@ -117,19 +130,41 @@ function App() {
   function changeMode(nextMode: GameMode) {
     setMode(nextMode);
     const nextRule = rollRule();
+    const nextChoices = buildChoices(nextRule, []);
     setTeam([]);
     setMatches([]);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
+    setChoiceMoves(buildMoveSet(nextChoices));
     setSelectedMovePokemon(null);
+    setSameGenRerolls(2);
+    setWildRerolls(2);
     setRule(nextRule);
-    setChoices(buildChoices(nextRule, []));
+    setChoices(nextChoices);
   }
 
   function goNextBattle() {
     setActiveMatchIndex((index) => Math.min(index + 1, matches.length - 1));
     setVisibleLogCount(1);
+  }
+
+  function rerollSameGeneration() {
+    if (sameGenRerolls <= 0 || !isDrafting) return;
+    const nextChoices = buildChoices(rule, team);
+    setChoices(nextChoices);
+    setChoiceMoves(buildMoveSet(nextChoices));
+    setSameGenRerolls((count) => count - 1);
+  }
+
+  function rerollAnyGeneration() {
+    if (wildRerolls <= 0 || !isDrafting) return;
+    const nextRule = rollRule();
+    const nextChoices = buildChoices(nextRule, team);
+    setRule(nextRule);
+    setChoices(nextChoices);
+    setChoiceMoves(buildMoveSet(nextChoices));
+    setWildRerolls((count) => count - 1);
   }
 
   return (
@@ -151,7 +186,7 @@ function App() {
           <Status label="선택" value={isDrafting ? `${pickNumber} / 6` : "완성"} />
           <Status label="모드" value={modeLabel} />
           {!isDrafting && matches.length > 0 && <Status label="리그" value={regionLabel} />}
-          <Status label="조건" value={`${rule.gen}세대 ${generationLabels[rule.gen]} · ${typeLabels[rule.type]}${ruleSuffix}`} />
+          <Status label="조건" value={`${rule.gen}세대 ${generationLabels[rule.gen]}`} />
           <button className="primary-action" type="button" onClick={startRun}>
             <RotateCcw size={18} />
             새로 시작
@@ -184,12 +219,22 @@ function App() {
               </div>
               <div className="rule-card">
                 <span>{rule.gen}세대 {generationLabels[rule.gen]}</span>
-                <strong>{typeLabels[rule.type]} 타입</strong>
+                <strong>세대 랜덤 5마리</strong>
               </div>
             </div>
+            {isDrafting && (
+              <div className="reroll-row">
+                <button type="button" onClick={rerollSameGeneration} disabled={sameGenRerolls <= 0}>
+                  세대 내 리롤 {sameGenRerolls}
+                </button>
+                <button type="button" onClick={rerollAnyGeneration} disabled={wildRerolls <= 0}>
+                  완전 랜덤 리롤 {wildRerolls}
+                </button>
+              </div>
+            )}
             <div className="choices" aria-live="polite">
               {isDrafting
-                ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} onPick={pickPokemon} />)
+                ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} moves={choiceMoves[mon.name] ?? []} onPick={pickPokemon} />)
                 : (
                     <LockedParty
                       team={team}
@@ -261,7 +306,15 @@ function Status({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokemon: Pokemon) => void }) {
+function ChoiceCard({
+  pokemon: mon,
+  moves,
+  onPick,
+}: {
+  pokemon: Pokemon;
+  moves: BattleMove[];
+  onPick: (pokemon: Pokemon) => void;
+}) {
   return (
     <article className="choice" style={{ "--accent": typeColors[mon.types[0]] } as React.CSSProperties}>
       <div>
@@ -269,6 +322,15 @@ function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokem
         <h3>{mon.displayName}</h3>
         <div className="meta">{mon.gen}세대 {generationLabels[mon.gen]}</div>
         <div className="type-row">{mon.types.map(typeChip)}</div>
+        <div className="choice-moves">
+          {moves.map((move) => (
+            <div className="choice-move" key={move.name}>
+              <span style={{ background: typeColors[move.type] }}>{typeLabels[move.type]}</span>
+              <strong>{move.displayName}</strong>
+              <em>{moveCategoryLabel(move.category)} {move.power ? `· ${move.power}` : ""}</em>
+            </div>
+          ))}
+        </div>
         <div className="hidden-note">능력치는 경기 후 공개</div>
       </div>
       <button className="pick-button" type="button" onClick={() => onPick(mon)}>
@@ -619,8 +681,7 @@ function typeChip(type: Pokemon["types"][number]) {
 
 function rollRule(): DraftRule {
   const gen = randomItem([...new Set(pokemon.map((mon) => mon.gen))]);
-  const type = randomItem([...new Set(pokemon.flatMap((mon) => mon.types))]);
-  return { gen, type };
+  return { gen };
 }
 
 function simulateRun(team: Pokemon[], mode: GameMode, playerMoves: MoveSet): MatchResult[] {

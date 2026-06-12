@@ -295,6 +295,29 @@ h2 {
   min-width: 170px;
 }
 
+.reroll-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.reroll-row button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 21, 28, 0.72);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 1000;
+}
+
+.reroll-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .choices {
   display: grid;
   grid-template-columns: repeat(5, minmax(150px, 1fr));
@@ -304,7 +327,7 @@ h2 {
 
 .choice,
 .locked-party {
-  min-height: 330px;
+  min-height: 410px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -476,6 +499,45 @@ h2 {
   flex-wrap: wrap;
   gap: 6px;
   margin: 10px 0;
+}
+
+.choice-moves {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.choice-move {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(16, 21, 28, 0.52);
+}
+
+.choice-move span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: #0b1016;
+  font-size: 0.64rem;
+  font-weight: 1000;
+}
+
+.choice-move strong {
+  overflow: hidden;
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choice-move em {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 800;
 }
 
 .chip {
