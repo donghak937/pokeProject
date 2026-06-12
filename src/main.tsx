@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
 import { calculateWinProjection, createBattleFeed } from "./battle";
-import { indigoLeague, type LeagueOpponent } from "./leagues";
+import { championLeagues, type LeagueOpponent } from "./leagues";
 import {
   buildChoices,
   buildEnemyTeam,
@@ -27,19 +27,49 @@ function App() {
   const [rule, setRule] = React.useState<DraftRule>(() => rollRule());
   const [choices, setChoices] = React.useState<Pokemon[]>(() => buildChoices(rule, []));
   const [matches, setMatches] = React.useState<MatchResult[]>([]);
+  const [activeMatchIndex, setActiveMatchIndex] = React.useState(0);
+  const [visibleLogCount, setVisibleLogCount] = React.useState(1);
 
   const pickNumber = team.length + 1;
   const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
   const ruleSuffix = exactMatches < choices.length ? " + 와일드카드" : "";
   const isDrafting = team.length < 6;
-  const isRevealed = matches.length > 0;
-  const champion = matches.length > 0 && matches.every((match) => match.skipped || match.win);
+  const activeMatch = matches[activeMatchIndex];
+  const activeLogs = activeMatch && !activeMatch.skipped ? activeMatch.logs.slice(0, visibleLogCount) : [];
+  const isLogDone = Boolean(activeMatch && !activeMatch.skipped && visibleLogCount >= activeMatch.logs.length);
+  const runEnded = Boolean(
+    activeMatch && !activeMatch.skipped && isLogDone && (!activeMatch.win || activeMatchIndex === matches.length - 1),
+  );
+  const isRevealed = runEnded;
+  const champion = runEnded && Boolean(activeMatch && !activeMatch.skipped && activeMatch.win);
   const modeLabel = mode === "random" ? "랜덤 토너먼트" : "포챔스";
+  const regionLabel =
+    mode === "champions" && activeMatch && !activeMatch.skipped
+      ? activeMatch.revealRegion
+        ? `${activeMatch.leagueRegion} 리그`
+        : "??? 리그"
+      : modeLabel;
+
+  React.useEffect(() => {
+    setVisibleLogCount(1);
+  }, [matches, activeMatchIndex]);
+
+  React.useEffect(() => {
+    if (!activeMatch || activeMatch.skipped || visibleLogCount >= activeMatch.logs.length) return;
+
+    const timer = window.setTimeout(() => {
+      setVisibleLogCount((count) => Math.min(count + 1, activeMatch.logs.length));
+    }, 680);
+
+    return () => window.clearTimeout(timer);
+  }, [activeMatch, visibleLogCount]);
 
   function startRun() {
     const nextRule = rollRule();
     setTeam([]);
     setMatches([]);
+    setActiveMatchIndex(0);
+    setVisibleLogCount(1);
     setRule(nextRule);
     setChoices(buildChoices(nextRule, []));
   }
@@ -50,6 +80,8 @@ function App() {
 
     if (nextTeam.length >= 6) {
       setMatches(simulateRun(nextTeam, mode));
+      setActiveMatchIndex(0);
+      setVisibleLogCount(1);
       return;
     }
 
@@ -60,6 +92,8 @@ function App() {
 
   function simulateAgain() {
     setMatches(simulateRun(team, mode));
+    setActiveMatchIndex(0);
+    setVisibleLogCount(1);
   }
 
   function changeMode(nextMode: GameMode) {
@@ -67,8 +101,15 @@ function App() {
     const nextRule = rollRule();
     setTeam([]);
     setMatches([]);
+    setActiveMatchIndex(0);
+    setVisibleLogCount(1);
     setRule(nextRule);
     setChoices(buildChoices(nextRule, []));
+  }
+
+  function goNextBattle() {
+    setActiveMatchIndex((index) => Math.min(index + 1, matches.length - 1));
+    setVisibleLogCount(1);
   }
 
   return (
@@ -89,6 +130,7 @@ function App() {
         <div className="status-strip">
           <Status label="선택" value={isDrafting ? `${pickNumber} / 6` : "완성"} />
           <Status label="모드" value={modeLabel} />
+          {!isDrafting && matches.length > 0 && <Status label="리그" value={regionLabel} />}
           <Status label="조건" value={`${rule.gen}세대 ${generationLabels[rule.gen]} · ${typeLabels[rule.type]}${ruleSuffix}`} />
           <button className="primary-action" type="button" onClick={startRun}>
             <RotateCcw size={18} />
@@ -135,25 +177,34 @@ function App() {
           <div className="tournament-heading">
             <div>
               <p className="eyebrow">{mode === "random" ? "챔피언 도전" : "포챔스 도전"}</p>
-              <h2>{champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락"}</h2>
+              <h2>{runEnded ? (champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락") : "도전 진행 중"}</h2>
             </div>
             <button className="primary-action" type="button" onClick={simulateAgain}>
               <Swords size={18} />
               다시 시뮬
             </button>
           </div>
-          <div className="bracket">
-            {matches.map((match) => <MatchCard key={match.round} match={match} />)}
-          </div>
-          <section className="reveal-panel" aria-label="능력치 공개">
-            <div className="reveal-heading">
-              <p className="eyebrow">능력치 공개</p>
-              <h2>내 선택 결과</h2>
-            </div>
-            <div className="reveal-grid">
-              {team.map((mon) => <RevealCard key={mon.name} pokemon={mon} />)}
-            </div>
-          </section>
+          <BattleProgress matches={matches} activeIndex={activeMatchIndex} />
+          {activeMatch && (
+            <MatchCard
+              match={activeMatch}
+              visibleLogs={activeLogs}
+              isLogDone={isLogDone}
+              hasNext={activeMatchIndex < matches.length - 1}
+              onNext={goNextBattle}
+            />
+          )}
+          {runEnded && (
+            <section className="reveal-panel" aria-label="능력치 공개">
+              <div className="reveal-heading">
+                <p className="eyebrow">능력치 공개</p>
+                <h2>내 선택 결과</h2>
+              </div>
+              <div className="reveal-grid">
+                {team.map((mon) => <RevealCard key={mon.name} pokemon={mon} />)}
+              </div>
+            </section>
+          )}
         </section>
       )}
       <footer className="asset-credit">
@@ -278,7 +329,32 @@ function LockedParty({ onSimulate }: { onSimulate: () => void }) {
   );
 }
 
-function MatchCard({ match }: { match: MatchResult }) {
+function BattleProgress({ matches, activeIndex }: { matches: MatchResult[]; activeIndex: number }) {
+  return (
+    <div className="battle-progress" aria-label="전투 진행">
+      {matches.map((match, index) => (
+        <div className={index === activeIndex ? "active" : index < activeIndex ? "cleared" : ""} key={match.round}>
+          <span>{index + 1}</span>
+          <strong>{match.round}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MatchCard({
+  match,
+  visibleLogs,
+  isLogDone,
+  hasNext,
+  onNext,
+}: {
+  match: MatchResult;
+  visibleLogs: string[];
+  isLogDone: boolean;
+  hasNext: boolean;
+  onNext: () => void;
+}) {
   if (match.skipped) {
     return (
       <article className="match">
@@ -289,18 +365,30 @@ function MatchCard({ match }: { match: MatchResult }) {
   }
 
   return (
-    <article className="match">
-      <h3>{match.round}</h3>
-      <p className={match.win ? "win" : "lose"}>{match.win ? "승리" : "패배"}</p>
-      <p className="meta">내 파티 {Math.round(match.playerScore)}점</p>
-      <p className="meta">상대 {Math.round(match.enemyScore)}점</p>
-      <p className="meta">예상 승률 {(match.winRate * 100).toFixed(1)}% · 판정 굴림 {(match.roll * 100).toFixed(1)}%</p>
-      <p className="meta">{match.enemy.map((mon) => mon.displayName).join(", ")}</p>
-      <div className="battle-log">
-        {match.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
-        <p>MVP 후보: {match.mvp.displayName}</p>
-        <p>주의 대상: {match.risk.displayName}</p>
+    <article className="match active-match">
+      <div className="match-top">
+        <div>
+          <p className="eyebrow">{match.revealRegion ? `${match.leagueRegion} 리그 공개` : "리그 정보 비공개"}</p>
+          <h3>{match.round}</h3>
+        </div>
+        {isLogDone && <p className={match.win ? "win" : "lose"}>{match.win ? "승리" : "패배"}</p>}
       </div>
+      <p className="meta">상대 엔트리: {match.enemy.map((mon) => mon.displayName).join(", ")}</p>
+      <div className="battle-log">
+        {visibleLogs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+        {!isLogDone && <p className="typing">...</p>}
+      </div>
+      {isLogDone && (
+        <div className="match-analysis">
+          <p>예상 승률 {(match.winRate * 100).toFixed(1)}% · 판정 굴림 {(match.roll * 100).toFixed(1)}%</p>
+          <p>MVP 후보: {match.mvp.displayName} · 주의 대상: {match.risk.displayName}</p>
+        </div>
+      )}
+      {isLogDone && match.win && hasNext && (
+        <button className="next-battle" type="button" onClick={onNext}>
+          다음 전투로
+        </button>
+      )}
     </article>
   );
 }
@@ -359,14 +447,19 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
 function simulateChampions(team: Pokemon[]): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
+  const league = randomItem(championLeagues);
 
-  indigoLeague.forEach((opponent) => {
+  league.opponents.forEach((opponent, index) => {
+    const isFinalBattle = index === league.opponents.length - 1;
     if (!alive) {
       matches.push({ round: `${opponent.title} ${opponent.name}`, skipped: true });
       return;
     }
 
-    const match = simulateOpponent(team, opponent.team, `${opponent.title} ${opponent.name}`, opponent);
+    const match = simulateOpponent(team, opponent.team, `${opponent.title} ${opponent.name}`, opponent, {
+      leagueRegion: league.region,
+      revealRegion: isFinalBattle,
+    });
     alive = !match.skipped && match.win;
     matches.push(match);
   });
@@ -374,14 +467,26 @@ function simulateChampions(team: Pokemon[]): MatchResult[] {
   return matches;
 }
 
-function simulateOpponent(team: Pokemon[], enemy: Pokemon[], round: string, opponent?: LeagueOpponent): MatchResult {
+function simulateOpponent(
+  team: Pokemon[],
+  enemy: Pokemon[],
+  round: string,
+  opponent?: LeagueOpponent,
+  options: { leagueRegion?: string; revealRegion?: boolean } = {},
+): MatchResult {
   const projection = calculateWinProjection(team, enemy);
   const roll = Math.random();
   const win = roll <= projection.winRate;
   const opponentName = opponent?.name ?? "상대";
   const battleLogs = createBattleFeed(team, enemy, win, { opponentName });
   const logs = opponent
-    ? [`${opponent.title} ${opponent.name}와의 승부`, ...battleLogs, ...projection.logs]
+    ? [
+        options.revealRegion && options.leagueRegion
+          ? `${options.leagueRegion} 리그 공개! ${withBattleParticle(`${opponent.title} ${opponent.name}`)}의 승부`
+          : `${withBattleParticle(`${opponent.title} ${opponent.name}`)}의 승부`,
+        ...battleLogs,
+        ...projection.logs,
+      ]
     : [...battleLogs, ...projection.logs];
 
   return {
@@ -395,11 +500,20 @@ function simulateOpponent(team: Pokemon[], enemy: Pokemon[], round: string, oppo
     logs,
     mvp: projection.mvp,
     risk: projection.risk,
+    leagueRegion: options.leagueRegion,
+    revealRegion: options.revealRegion,
   };
 }
 
 function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function withBattleParticle(label: string) {
+  const last = label[label.length - 1];
+  const code = last.charCodeAt(0);
+  const hasFinalConsonant = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return `${label}${hasFinalConsonant ? "과" : "와"}`;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

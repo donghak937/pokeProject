@@ -58,6 +58,8 @@ export type MatchResult =
       logs: string[];
       mvp: Pokemon;
       risk: Pokemon;
+      leagueRegion?: string;
+      revealRegion?: boolean;
     };
 
 export const generationLabels: Record<Generation, string> = {
