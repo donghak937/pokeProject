@@ -52,7 +52,12 @@ export type MatchResult =
       enemy: Pokemon[];
       playerScore: number;
       enemyScore: number;
+      winRate: number;
+      roll: number;
       win: boolean;
+      logs: string[];
+      mvp: Pokemon;
+      risk: Pokemon;
     };
 
 export const generationLabels: Record<Generation, string> = {

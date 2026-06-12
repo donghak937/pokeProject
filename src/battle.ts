@@ -1,0 +1,143 @@
+import { teamPower, typeLabels, type Pokemon, type TypeName } from "./model";
+
+export type WinProjection = {
+  playerScore: number;
+  enemyScore: number;
+  winRate: number;
+  mvp: Pokemon;
+  risk: Pokemon;
+  logs: string[];
+};
+
+type PairScore = {
+  attacker: Pokemon;
+  defender: Pokemon;
+  score: number;
+  attackMultiplier: number;
+  defenseRisk: number;
+};
+
+export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinProjection {
+  const playerPairs = scorePairs(team, enemy);
+  const enemyPairs = scorePairs(enemy, team);
+  const playerTeamScore = calculateTeamScore(team, playerPairs);
+  const enemyTeamScore = calculateTeamScore(enemy, enemyPairs);
+  const scoreDiff = playerTeamScore - enemyTeamScore;
+  const winRate = clamp(1 / (1 + Math.exp(-scoreDiff / 185)), 0.04, 0.96);
+  const bestPair = maxBy(playerPairs, (pair) => pair.score);
+  const worstPair = maxBy(enemyPairs, (pair) => pair.score);
+  const typeSpread = new Set(team.flatMap((mon) => mon.types)).size;
+  const enemyTypeSpread = new Set(enemy.flatMap((mon) => mon.types)).size;
+
+  return {
+    playerScore: playerTeamScore,
+    enemyScore: enemyTeamScore,
+    winRate,
+    mvp: bestPair.attacker,
+    risk: worstPair.attacker,
+    logs: [
+      `승률 계산: 내 파티 ${Math.round(playerTeamScore)}점 vs 상대 ${Math.round(enemyTeamScore)}점`,
+      `예상 승률 ${(winRate * 100).toFixed(1)}%`,
+      `주요 돌파구: ${bestPair.attacker.displayName} -> ${bestPair.defender.displayName} 상성 ${formatMultiplier(bestPair.attackMultiplier)}`,
+      `가장 위험한 상대: ${worstPair.attacker.displayName} -> ${worstPair.defender.displayName} 상성 ${formatMultiplier(worstPair.attackMultiplier)}`,
+      `타입 폭: 내 파티 ${typeSpread}종 / 상대 ${enemyTypeSpread}종`,
+    ],
+  };
+}
+
+function scorePairs(attackers: Pokemon[], defenders: Pokemon[]) {
+  return attackers.flatMap((attacker) =>
+    defenders.map((defender) => {
+      const attackMultiplier = bestAttackMultiplier(attacker.types, defender.types);
+      const defenseRisk = bestAttackMultiplier(defender.types, attacker.types);
+      const power = pokemonPower(attacker);
+      const score = power * matchupBoost(attackMultiplier) - pokemonPower(defender) * matchupRisk(defenseRisk) * 0.42;
+      return { attacker, defender, score, attackMultiplier, defenseRisk };
+    }),
+  );
+}
+
+function calculateTeamScore(team: Pokemon[], pairs: PairScore[]) {
+  const averagePairScore = average(pairs.map((pair) => pair.score));
+  const topPairs = [...pairs].sort((a, b) => b.score - a.score).slice(0, Math.max(3, team.length));
+  const topPairAverage = average(topPairs.map((pair) => pair.score));
+  const rawPower = teamPower(team);
+  const diversityBonus = new Set(team.flatMap((mon) => mon.types)).size * 16;
+  const duplicatePenalty = duplicateTypePenalty(team);
+  return rawPower * 0.52 + averagePairScore * 0.28 + topPairAverage * 0.2 + diversityBonus - duplicatePenalty;
+}
+
+function pokemonPower(mon: Pokemon) {
+  return mon.total + mon.attack * 0.35 + mon.defense * 0.25 + mon.hp * 0.2;
+}
+
+function bestAttackMultiplier(attackerTypes: TypeName[], defenderTypes: TypeName[]) {
+  return Math.max(
+    ...attackerTypes.flatMap((attackType) =>
+      defenderTypes.map((defenseType) => typeChart[attackType]?.[defenseType] ?? 1),
+    ),
+  );
+}
+
+function matchupBoost(multiplier: number) {
+  if (multiplier >= 4) return 1.85;
+  if (multiplier >= 2) return 1.45;
+  if (multiplier === 0) return 0.18;
+  if (multiplier <= 0.25) return 0.42;
+  if (multiplier <= 0.5) return 0.68;
+  return 1;
+}
+
+function matchupRisk(multiplier: number) {
+  if (multiplier >= 4) return 1.75;
+  if (multiplier >= 2) return 1.35;
+  if (multiplier === 0) return 0.2;
+  if (multiplier <= 0.5) return 0.72;
+  return 1;
+}
+
+function duplicateTypePenalty(team: Pokemon[]) {
+  const counts = new Map<TypeName, number>();
+  team.forEach((mon) => mon.types.forEach((type) => counts.set(type, (counts.get(type) ?? 0) + 1)));
+  return [...counts.values()].reduce((sum, count) => sum + Math.max(0, count - 1) * 18, 0);
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
+function maxBy<T>(items: T[], score: (item: T) => number) {
+  return items.reduce((best, item) => (score(item) > score(best) ? item : best));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatMultiplier(multiplier: number) {
+  if (multiplier === 0) return "무효";
+  if (multiplier > 1) return `${multiplier}배 유리`;
+  if (multiplier < 1) return `${multiplier}배 불리`;
+  return "보통";
+}
+
+const typeChart: Record<TypeName, Partial<Record<TypeName, number>>> = {
+  Normal: { Rock: 0.5, Ghost: 0, Steel: 0.5 },
+  Fire: { Grass: 2, Ice: 2, Bug: 2, Steel: 2, Fire: 0.5, Water: 0.5, Rock: 0.5, Dragon: 0.5 },
+  Water: { Fire: 2, Ground: 2, Rock: 2, Water: 0.5, Grass: 0.5, Dragon: 0.5 },
+  Grass: { Water: 2, Ground: 2, Rock: 2, Fire: 0.5, Grass: 0.5, Poison: 0.5, Flying: 0.5, Bug: 0.5, Dragon: 0.5, Steel: 0.5 },
+  Electric: { Water: 2, Flying: 2, Electric: 0.5, Grass: 0.5, Dragon: 0.5, Ground: 0 },
+  Ice: { Grass: 2, Ground: 2, Flying: 2, Dragon: 2, Fire: 0.5, Water: 0.5, Ice: 0.5, Steel: 0.5 },
+  Fighting: { Normal: 2, Ice: 2, Rock: 2, Dark: 2, Steel: 2, Poison: 0.5, Flying: 0.5, Psychic: 0.5, Bug: 0.5, Fairy: 0.5, Ghost: 0 },
+  Poison: { Grass: 2, Fairy: 2, Poison: 0.5, Ground: 0.5, Rock: 0.5, Ghost: 0.5, Steel: 0 },
+  Ground: { Fire: 2, Electric: 2, Poison: 2, Rock: 2, Steel: 2, Grass: 0.5, Bug: 0.5, Flying: 0 },
+  Flying: { Grass: 2, Fighting: 2, Bug: 2, Electric: 0.5, Rock: 0.5, Steel: 0.5 },
+  Psychic: { Fighting: 2, Poison: 2, Psychic: 0.5, Steel: 0.5, Dark: 0 },
+  Bug: { Grass: 2, Psychic: 2, Dark: 2, Fire: 0.5, Fighting: 0.5, Poison: 0.5, Flying: 0.5, Ghost: 0.5, Steel: 0.5, Fairy: 0.5 },
+  Rock: { Fire: 2, Ice: 2, Flying: 2, Bug: 2, Fighting: 0.5, Ground: 0.5, Steel: 0.5 },
+  Ghost: { Psychic: 2, Ghost: 2, Dark: 0.5, Normal: 0 },
+  Dragon: { Dragon: 2, Steel: 0.5, Fairy: 0 },
+  Dark: { Psychic: 2, Ghost: 2, Fighting: 0.5, Dark: 0.5, Fairy: 0.5 },
+  Steel: { Ice: 2, Rock: 2, Fairy: 2, Fire: 0.5, Water: 0.5, Electric: 0.5, Steel: 0.5 },
+  Fairy: { Fighting: 2, Dragon: 2, Dark: 2, Fire: 0.5, Poison: 0.5, Steel: 0.5 },
+};

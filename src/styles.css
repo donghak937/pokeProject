@@ -425,7 +425,7 @@ h2 {
 }
 
 .match {
-  min-height: 150px;
+  min-height: 260px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -444,6 +444,23 @@ h2 {
 .match .lose {
   color: var(--bad);
   font-weight: 900;
+}
+
+.battle-log {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(170, 181, 196, 0.18);
+  border-radius: 8px;
+  background: rgba(16, 21, 28, 0.72);
+}
+
+.battle-log p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 @media (max-width: 1040px) {

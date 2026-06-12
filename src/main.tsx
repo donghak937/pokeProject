@@ -2,6 +2,7 @@
 import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
+import { calculateWinProjection } from "./battle";
 import {
   buildChoices,
   buildEnemyTeam,
@@ -271,7 +272,13 @@ function MatchCard({ match }: { match: MatchResult }) {
       <p className={match.win ? "win" : "lose"}>{match.win ? "승리" : "패배"}</p>
       <p className="meta">내 파티 {Math.round(match.playerScore)}점</p>
       <p className="meta">상대 {Math.round(match.enemyScore)}점</p>
+      <p className="meta">예상 승률 {(match.winRate * 100).toFixed(1)}% · 판정 굴림 {(match.roll * 100).toFixed(1)}%</p>
       <p className="meta">{match.enemy.map((mon) => mon.displayName).join(", ")}</p>
+      <div className="battle-log">
+        {match.logs.map((line) => <p key={line}>{line}</p>)}
+        <p>MVP 후보: {match.mvp.displayName}</p>
+        <p>주의 대상: {match.risk.displayName}</p>
+      </div>
     </article>
   );
 }
@@ -301,65 +308,30 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
     }
 
     const enemy = buildEnemyTeam(index);
-    const playerScore = battleScore(team, enemy);
-    const enemyScore = battleScore(enemy, team);
-    const win = playerScore >= enemyScore;
+    const projection = calculateWinProjection(team, enemy);
+    const roll = Math.random();
+    const win = roll <= projection.winRate;
     alive = win;
-    matches.push({ round, enemy, playerScore, enemyScore, win });
+    matches.push({
+      round,
+      enemy,
+      playerScore: projection.playerScore,
+      enemyScore: projection.enemyScore,
+      winRate: projection.winRate,
+      roll,
+      win,
+      logs: projection.logs,
+      mvp: projection.mvp,
+      risk: projection.risk,
+    });
   });
 
   return matches;
 }
 
-function battleScore(team: Pokemon[], opponent: Pokemon[]) {
-  const base = teamPower(team);
-  const matchup = teamMatchup(team, opponent);
-  const variance = randomBetween(-72, 72);
-  return base + matchup + variance;
-}
-
-function teamMatchup(team: Pokemon[], opponent: Pokemon[]) {
-  return team.reduce((sum, attacker) => {
-    const best = Math.max(...opponent.map((defender) => matchupValue(attacker, defender)));
-    return sum + best * 34;
-  }, 0);
-}
-
-function matchupValue(attacker: Pokemon, defender: Pokemon) {
-  const values = attacker.types.flatMap((attackType) =>
-    defender.types.map((defenseType) => typeChart[attackType]?.[defenseType] ?? 1),
-  );
-  return Math.max(...values);
-}
-
 function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
-
-function randomBetween(min: number, max: number) {
-  return Math.random() * (max - min) + min;
-}
-
-const typeChart: Record<string, Partial<Record<string, number>>> = {
-  Normal: { Rock: 0.5, Ghost: 0, Steel: 0.5 },
-  Fire: { Grass: 2, Ice: 2, Bug: 2, Steel: 2, Fire: 0.5, Water: 0.5, Rock: 0.5, Dragon: 0.5 },
-  Water: { Fire: 2, Ground: 2, Rock: 2, Water: 0.5, Grass: 0.5, Dragon: 0.5 },
-  Grass: { Water: 2, Ground: 2, Rock: 2, Fire: 0.5, Grass: 0.5, Poison: 0.5, Flying: 0.5, Bug: 0.5, Dragon: 0.5, Steel: 0.5 },
-  Electric: { Water: 2, Flying: 2, Electric: 0.5, Grass: 0.5, Dragon: 0.5, Ground: 0 },
-  Ice: { Grass: 2, Ground: 2, Flying: 2, Dragon: 2, Fire: 0.5, Water: 0.5, Ice: 0.5, Steel: 0.5 },
-  Fighting: { Normal: 2, Ice: 2, Rock: 2, Dark: 2, Steel: 2, Poison: 0.5, Flying: 0.5, Psychic: 0.5, Bug: 0.5, Fairy: 0.5, Ghost: 0 },
-  Poison: { Grass: 2, Fairy: 2, Poison: 0.5, Ground: 0.5, Rock: 0.5, Ghost: 0.5, Steel: 0 },
-  Ground: { Fire: 2, Electric: 2, Poison: 2, Rock: 2, Steel: 2, Grass: 0.5, Bug: 0.5, Flying: 0 },
-  Flying: { Grass: 2, Fighting: 2, Bug: 2, Electric: 0.5, Rock: 0.5, Steel: 0.5 },
-  Psychic: { Fighting: 2, Poison: 2, Psychic: 0.5, Steel: 0.5, Dark: 0 },
-  Bug: { Grass: 2, Psychic: 2, Dark: 2, Fire: 0.5, Fighting: 0.5, Poison: 0.5, Flying: 0.5, Ghost: 0.5, Steel: 0.5, Fairy: 0.5 },
-  Rock: { Fire: 2, Ice: 2, Flying: 2, Bug: 2, Fighting: 0.5, Ground: 0.5, Steel: 0.5 },
-  Ghost: { Psychic: 2, Ghost: 2, Dark: 0.5, Normal: 0 },
-  Dragon: { Dragon: 2, Steel: 0.5, Fairy: 0 },
-  Dark: { Psychic: 2, Ghost: 2, Fighting: 0.5, Dark: 0.5, Fairy: 0.5 },
-  Steel: { Ice: 2, Rock: 2, Fairy: 2, Fire: 0.5, Water: 0.5, Electric: 0.5, Steel: 0.5 },
-  Fairy: { Fighting: 2, Dragon: 2, Dark: 2, Fire: 0.5, Poison: 0.5, Steel: 0.5 },
-};
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
