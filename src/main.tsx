@@ -28,6 +28,7 @@ function App() {
   const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
   const ruleSuffix = exactMatches < choices.length ? " + 와일드카드" : "";
   const isDrafting = team.length < 6;
+  const isRevealed = matches.length > 0;
   const champion = matches.length > 0 && matches.every((match) => match.skipped || match.win);
 
   function startRun() {
@@ -77,7 +78,7 @@ function App() {
         <aside className="team-panel" aria-label="내 파티">
           <div className="panel-heading">
             <h2>내 파티</h2>
-            <span>{Math.round(teamPower(team))}점</span>
+            <span>{isRevealed ? `${Math.round(teamPower(team))}점` : "비공개"}</span>
           </div>
           <div className="team-slots">
             {Array.from({ length: 6 }, (_, index) => {
@@ -121,6 +122,15 @@ function App() {
           <div className="bracket">
             {matches.map((match) => <MatchCard key={match.round} match={match} />)}
           </div>
+          <section className="reveal-panel" aria-label="능력치 공개">
+            <div className="reveal-heading">
+              <p className="eyebrow">능력치 공개</p>
+              <h2>내 선택 결과</h2>
+            </div>
+            <div className="reveal-grid">
+              {team.map((mon) => <RevealCard key={mon.name} pokemon={mon} />)}
+            </div>
+          </section>
         </section>
       )}
       <footer className="asset-credit">
@@ -145,14 +155,9 @@ function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokem
       <div>
         <PokemonPortrait pokemon={mon} large />
         <h3>{mon.displayName}</h3>
-        <div className="meta">{mon.gen}세대 {generationLabels[mon.gen]} · 종족값 {mon.total}</div>
+        <div className="meta">{mon.gen}세대 {generationLabels[mon.gen]}</div>
         <div className="type-row">{mon.types.map(typeChip)}</div>
-        <div className="score-line">드래프트 점수 {Math.round(mon.score)}</div>
-        <div className="stats">
-          <StatBar label="체력" value={mon.hp} max={160} />
-          <StatBar label="공격" value={mon.attack} max={150} />
-          <StatBar label="방어" value={mon.defense} max={140} />
-        </div>
+        <div className="hidden-note">능력치는 경기 후 공개</div>
       </div>
       <button className="pick-button" type="button" onClick={() => onPick(mon)}>
         선택
@@ -164,10 +169,10 @@ function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokem
 function TeamSlot({ pokemon: mon }: { pokemon: Pokemon }) {
   return (
     <article className="slot">
-      <PokemonPortrait pokemon={mon} />
+        <PokemonPortrait pokemon={mon} />
       <div>
         <h3>{mon.displayName}</h3>
-        <div className="meta">{mon.types.map((type) => typeLabels[type]).join(" / ")} · {Math.round(mon.score)}점</div>
+        <div className="meta">{mon.types.map((type) => typeLabels[type]).join(" / ")}</div>
       </div>
     </article>
   );
@@ -213,6 +218,27 @@ function StatBar({ label, value, max }: { label: string; value: number; max: num
       </div>
       <span>{value}</span>
     </div>
+  );
+}
+
+function RevealCard({ pokemon: mon }: { pokemon: Pokemon }) {
+  return (
+    <article className="reveal-card">
+      <PokemonPortrait pokemon={mon} />
+      <div>
+        <h3>{mon.displayName}</h3>
+        <div className="meta">
+          {mon.gen}세대 {generationLabels[mon.gen]} · {mon.types.map((type) => typeLabels[type]).join(" / ")}
+        </div>
+        <div className="reveal-stats">
+          <strong>종족값 {mon.total}</strong>
+          <span>체력 {mon.hp}</span>
+          <span>공격 {mon.attack}</span>
+          <span>방어 {mon.defense}</span>
+          <span>시뮬 점수 {Math.round(mon.score)}</span>
+        </div>
+      </div>
+    </article>
   );
 }
 
