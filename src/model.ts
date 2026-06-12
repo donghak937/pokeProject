@@ -24,6 +24,13 @@ export const typeColors = {
 export type TypeName = keyof typeof typeColors;
 export type Generation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type MoveCategory = "physical" | "special" | "status";
+export type StatusCondition = "burn" | "poison" | "paralysis" | "sleep" | "freeze" | "confusion";
+
+export type BattleAbility = {
+  id: string;
+  name: string;
+  description: string;
+};
 
 export type BattleMove = {
   name: string;

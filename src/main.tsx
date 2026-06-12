@@ -14,9 +14,11 @@ import {
   typeGradient,
   typeLabels,
   type DraftRule,
+  type BattleAbility,
   type BattleMove,
   type MatchResult,
   type Pokemon,
+  type StatusCondition,
 } from "./model";
 
 const rounds = ["16강", "8강", "4강", "결승"] as const;
@@ -34,6 +36,8 @@ function App() {
   const [visibleLogCount, setVisibleLogCount] = React.useState(1);
   const [teamMoves, setTeamMoves] = React.useState<Record<string, BattleMove[]>>({});
   const [choiceMoves, setChoiceMoves] = React.useState<Record<string, BattleMove[]>>({});
+  const [teamAbilities, setTeamAbilities] = React.useState<Record<string, BattleAbility>>({});
+  const [choiceAbilities, setChoiceAbilities] = React.useState<Record<string, BattleAbility>>({});
   const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
   const [inspectingChoice, setInspectingChoice] = React.useState<Pokemon | null>(null);
   const [logSpeed, setLogSpeed] = React.useState<LogSpeed>(1);
@@ -64,6 +68,7 @@ function App() {
 
   React.useEffect(() => {
     setChoiceMoves(buildMoveSet(choices));
+    setChoiceAbilities(buildAbilitySet(choices));
   }, [choices]);
 
   React.useEffect(() => {
@@ -84,7 +89,9 @@ function App() {
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
+    setTeamAbilities({});
     setChoiceMoves(buildMoveSet(nextChoices));
+    setChoiceAbilities(buildAbilitySet(nextChoices));
     setSelectedMovePokemon(null);
     setInspectingChoice(null);
     setSameGenRerolls(2);
@@ -101,6 +108,10 @@ function App() {
       ...current,
       [mon.name]: current[mon.name] ?? choiceMoves[mon.name] ?? rollMoves(mon),
     }));
+    setTeamAbilities((current) => ({
+      ...current,
+      [mon.name]: current[mon.name] ?? choiceAbilities[mon.name] ?? rollAbility(mon),
+    }));
     setSelectedMovePokemon(mon.name);
 
     if (nextTeam.length >= 6) {
@@ -114,16 +125,17 @@ function App() {
     setRule(nextRule);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
+    setChoiceAbilities(buildAbilitySet(nextChoices));
   }
 
   function simulateAgain() {
-    setMatches(simulateRun(team, mode, teamMoves));
+    setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
   }
 
   function startBattle() {
-    setMatches(simulateRun(team, mode, teamMoves));
+    setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
   }
@@ -137,7 +149,9 @@ function App() {
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
+    setTeamAbilities({});
     setChoiceMoves(buildMoveSet(nextChoices));
+    setChoiceAbilities(buildAbilitySet(nextChoices));
     setSelectedMovePokemon(null);
     setInspectingChoice(null);
     setSameGenRerolls(2);
@@ -157,6 +171,7 @@ function App() {
     setInspectingChoice(null);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
+    setChoiceAbilities(buildAbilitySet(nextChoices));
     setSameGenRerolls((count) => count - 1);
   }
 
@@ -168,6 +183,7 @@ function App() {
     setRule(nextRule);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
+    setChoiceAbilities(buildAbilitySet(nextChoices));
     setWildRerolls((count) => count - 1);
   }
 
@@ -243,6 +259,7 @@ function App() {
                     <LockedParty
                       team={team}
                       teamMoves={teamMoves}
+                      teamAbilities={teamAbilities}
                       selectedPokemonName={selectedMovePokemon ?? team[0]?.name ?? null}
                       onSelectPokemon={setSelectedMovePokemon}
                       onStartBattle={startBattle}
@@ -253,6 +270,7 @@ function App() {
               <ChoiceMoveModal
                 pokemon={inspectingChoice}
                 moves={choiceMoves[inspectingChoice.name] ?? []}
+                ability={choiceAbilities[inspectingChoice.name] ?? rollAbility(inspectingChoice)}
                 onClose={() => setInspectingChoice(null)}
                 onPick={() => pickPokemon(inspectingChoice)}
               />
@@ -347,11 +365,13 @@ function ChoiceCard({
 function ChoiceMoveModal({
   pokemon: mon,
   moves,
+  ability,
   onClose,
   onPick,
 }: {
   pokemon: Pokemon;
   moves: BattleMove[];
+  ability: BattleAbility;
   onClose: () => void;
   onPick: () => void;
 }) {
@@ -371,6 +391,7 @@ function ChoiceMoveModal({
             닫기
           </button>
         </div>
+        <AbilityPanel ability={ability} />
         <div className="move-list modal-move-list">
           {moves.map((move) => <MovePill move={move} key={move.name} />)}
         </div>
@@ -476,18 +497,21 @@ function RevealCard({ pokemon: mon }: { pokemon: Pokemon }) {
 function LockedParty({
   team,
   teamMoves,
+  teamAbilities,
   selectedPokemonName,
   onSelectPokemon,
   onStartBattle,
 }: {
   team: Pokemon[];
   teamMoves: Record<string, BattleMove[]>;
+  teamAbilities: Record<string, BattleAbility>;
   selectedPokemonName: string | null;
   onSelectPokemon: (name: string) => void;
   onStartBattle: () => void;
 }) {
   const selectedPokemon = team.find((mon) => mon.name === selectedPokemonName) ?? team[0];
   const selectedMoves = selectedPokemon ? teamMoves[selectedPokemon.name] ?? [] : [];
+  const selectedAbility = selectedPokemon ? teamAbilities[selectedPokemon.name] : undefined;
 
   return (
     <article className="locked-party">
@@ -528,6 +552,7 @@ function LockedParty({
               <div className="move-list">
                 {selectedMoves.map((move) => <MovePill move={move} key={move.name} />)}
               </div>
+              {selectedAbility && <AbilityPanel ability={selectedAbility} compact />}
             </>
           )}
         </div>
@@ -536,7 +561,17 @@ function LockedParty({
   );
 }
 
+function AbilityPanel({ ability, compact = false }: { ability: BattleAbility; compact?: boolean }) {
+  return (
+    <article className={compact ? "ability-panel compact" : "ability-panel"}>
+      <strong>특성: {ability.name}</strong>
+      <p>{ability.description}</p>
+    </article>
+  );
+}
+
 function MovePill({ move }: { move: BattleMove }) {
+  const statusEffect = inferMoveStatusEffect(move);
   return (
     <article className="move-pill">
       <div>
@@ -546,6 +581,7 @@ function MovePill({ move }: { move: BattleMove }) {
       <p>
         {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"} · 명중 {move.accuracy ?? "-"} · PP {move.pp ?? "-"}
         {formatMoveStatChanges(move)}
+        {statusEffect ? ` · ${statusLabel(statusEffect.condition)} ${Math.round(statusEffect.chance * 100)}%` : ""}
       </p>
     </article>
   );
@@ -745,11 +781,18 @@ function rollRule(): DraftRule {
   return { gen };
 }
 
-function simulateRun(team: Pokemon[], mode: GameMode, playerMoves: MoveSet): MatchResult[] {
-  return mode === "random" ? simulateTournament(team, playerMoves) : simulateChampions(team, playerMoves);
+function simulateRun(
+  team: Pokemon[],
+  mode: GameMode,
+  playerMoves: MoveSet,
+  playerAbilities: Record<string, BattleAbility>,
+): MatchResult[] {
+  return mode === "random"
+    ? simulateTournament(team, playerMoves, playerAbilities)
+    : simulateChampions(team, playerMoves, playerAbilities);
 }
 
-function simulateTournament(team: Pokemon[], playerMoves: MoveSet): MatchResult[] {
+function simulateTournament(team: Pokemon[], playerMoves: MoveSet, playerAbilities: Record<string, BattleAbility>): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
 
@@ -765,7 +808,9 @@ function simulateTournament(team: Pokemon[], playerMoves: MoveSet): MatchResult[
     const win = roll <= projection.winRate;
     const battleLogs = createBattleFeed(team, enemy, win, {
       playerMoves,
+      playerAbilities,
       enemyMoves: buildMoveSet(enemy),
+      enemyAbilities: buildAbilitySet(enemy),
     });
     alive = win;
     matches.push({
@@ -785,7 +830,7 @@ function simulateTournament(team: Pokemon[], playerMoves: MoveSet): MatchResult[
   return matches;
 }
 
-function simulateChampions(team: Pokemon[], playerMoves: MoveSet): MatchResult[] {
+function simulateChampions(team: Pokemon[], playerMoves: MoveSet, playerAbilities: Record<string, BattleAbility>): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
   const league = randomItem(championLeagues);
@@ -807,6 +852,7 @@ function simulateChampions(team: Pokemon[], playerMoves: MoveSet): MatchResult[]
         revealRegion: isFinalBattle,
       },
       playerMoves,
+      playerAbilities,
     );
     alive = !match.skipped && match.win;
     matches.push(match);
@@ -822,6 +868,7 @@ function simulateOpponent(
   opponent?: LeagueOpponent,
   options: { leagueRegion?: string; revealRegion?: boolean } = {},
   playerMoves: MoveSet = {},
+  playerAbilities: Record<string, BattleAbility> = {},
 ): MatchResult {
   const enemyTeam = enemy.slice(0, 6);
   const projection = calculateWinProjection(team, enemyTeam);
@@ -831,7 +878,9 @@ function simulateOpponent(
   const battleLogs = createBattleFeed(team, enemyTeam, win, {
     opponentName,
     playerMoves,
+    playerAbilities,
     enemyMoves: buildMoveSet(enemyTeam),
+    enemyAbilities: buildAbilitySet(enemyTeam),
   });
   const logs = opponent
     ? [
@@ -881,6 +930,54 @@ function rollMoves(mon: Pokemon) {
   return selected.slice(0, 4);
 }
 
+function rollAbility(mon: Pokemon) {
+  return randomItem(abilityPool(mon));
+}
+
+function buildAbilitySet(team: Pokemon[]) {
+  return Object.fromEntries(team.map((mon) => [mon.name, rollAbility(mon)]));
+}
+
+function abilityPool(mon: Pokemon): BattleAbility[] {
+  const pool: BattleAbility[] = [
+    { id: "adaptability", name: "적응력", description: "자기 타입 기술의 보정이 더 강해집니다." },
+    { id: "sturdy", name: "옹골참", description: "한 번에 쓰러질 피해를 버텨낼 수 있습니다." },
+  ];
+
+  if (mon.attack >= mon.specialAttack + 25) {
+    pool.push({ id: "guts", name: "근성", description: "상태이상일 때 물리 공격이 강해지고 화상 약화를 덜 받습니다." });
+  }
+  if (mon.attack >= 110) {
+    pool.push({ id: "huge-power", name: "천하장사", description: "물리 공격력이 크게 상승합니다." });
+  }
+  if (mon.defense >= 105) {
+    pool.push({ id: "marvel-scale", name: "이상한비늘", description: "상태이상일 때 방어가 상승합니다." });
+  }
+  if (mon.speed >= 100) {
+    pool.push({ id: "speed-boost", name: "가속", description: "턴이 끝날 때마다 스피드가 조금씩 상승합니다." });
+  }
+  if (mon.types.includes("Flying") || mon.types.includes("Ghost")) {
+    pool.push({ id: "levitate", name: "부유", description: "땅 타입 공격을 무효화합니다." });
+  }
+  if (mon.types.includes("Fire")) {
+    pool.push({ id: "flash-fire", name: "타오르는불꽃", description: "불꽃 타입 공격을 무효화합니다." });
+  }
+  if (mon.types.includes("Ice") || mon.types.includes("Water")) {
+    pool.push({ id: "thick-fat", name: "두꺼운지방", description: "불꽃과 얼음 타입 피해를 줄입니다." });
+  }
+  if (mon.types.includes("Poison") || mon.types.includes("Steel")) {
+    pool.push({ id: "immunity", name: "면역", description: "독 상태가 되지 않습니다." });
+  }
+  if (mon.types.includes("Electric")) {
+    pool.push({ id: "limber", name: "유연", description: "마비 상태가 되지 않습니다." });
+  }
+  if (mon.types.includes("Dark") || mon.types.includes("Dragon")) {
+    pool.push({ id: "intimidate", name: "위협", description: "등장할 때 상대의 공격을 낮춥니다." });
+  }
+
+  return pool;
+}
+
 function buildMoveSet(team: Pokemon[]): MoveSet {
   return Object.fromEntries(team.map((mon) => [mon.name, rollMoves(mon)]));
 }
@@ -906,6 +1003,31 @@ function formatMoveStatChanges(move: BattleMove) {
     .map((change) => `${moveStatLabel(change.stat)} ${change.change > 0 ? "+" : ""}${change.change}`);
 
   return changes.length > 0 ? ` · 랭크 ${changes.join(", ")}` : "";
+}
+
+function inferMoveStatusEffect(move: BattleMove): { condition: StatusCondition; chance: number } | undefined {
+  const name = move.name.toLowerCase();
+  if (name.includes("will-o-wisp") || name.includes("scald")) return { condition: "burn", chance: 1 };
+  if (name.includes("thunder-wave") || name.includes("stun-spore") || name.includes("nuzzle")) {
+    return { condition: "paralysis", chance: 1 };
+  }
+  if (name.includes("toxic") || name.includes("poison-powder")) return { condition: "poison", chance: 1 };
+  if (name.includes("sleep-powder") || name.includes("hypnosis") || name.includes("spore")) return { condition: "sleep", chance: 1 };
+  if (name.includes("confuse-ray") || name.includes("supersonic")) return { condition: "confusion", chance: 1 };
+  if (move.type === "Fire" && move.category !== "status") return { condition: "burn", chance: move.power && move.power >= 100 ? 0.2 : 0.1 };
+  if (move.type === "Electric" && move.category !== "status") return { condition: "paralysis", chance: 0.1 };
+  if (move.type === "Poison" && move.category !== "status") return { condition: "poison", chance: 0.25 };
+  if (move.type === "Ice" && move.category !== "status") return { condition: "freeze", chance: 0.1 };
+  return undefined;
+}
+
+function statusLabel(condition: StatusCondition) {
+  if (condition === "burn") return "화상";
+  if (condition === "poison") return "독";
+  if (condition === "paralysis") return "마비";
+  if (condition === "sleep") return "잠듦";
+  if (condition === "freeze") return "얼음";
+  return "혼란";
 }
 
 function moveStatLabel(stat: string) {

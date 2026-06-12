@@ -495,6 +495,32 @@ h2 {
   font-size: 0.78rem;
 }
 
+.ability-panel {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid rgba(241, 200, 75, 0.36);
+  border-radius: 8px;
+  background: rgba(64, 54, 26, 0.34);
+}
+
+.ability-panel.compact {
+  margin: 12px 0 0;
+}
+
+.ability-panel strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.ability-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .portrait {
   height: 150px;
   display: grid;
