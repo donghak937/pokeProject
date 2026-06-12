@@ -2,7 +2,7 @@
 import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
-import { calculateWinProjection } from "./battle";
+import { calculateWinProjection, createBattleFeed } from "./battle";
 import { indigoLeague, type LeagueOpponent } from "./leagues";
 import {
   buildChoices,
@@ -297,7 +297,7 @@ function MatchCard({ match }: { match: MatchResult }) {
       <p className="meta">예상 승률 {(match.winRate * 100).toFixed(1)}% · 판정 굴림 {(match.roll * 100).toFixed(1)}%</p>
       <p className="meta">{match.enemy.map((mon) => mon.displayName).join(", ")}</p>
       <div className="battle-log">
-        {match.logs.map((line) => <p key={line}>{line}</p>)}
+        {match.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
         <p>MVP 후보: {match.mvp.displayName}</p>
         <p>주의 대상: {match.risk.displayName}</p>
       </div>
@@ -337,6 +337,7 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
     const projection = calculateWinProjection(team, enemy);
     const roll = Math.random();
     const win = roll <= projection.winRate;
+    const battleLogs = createBattleFeed(team, enemy, win);
     alive = win;
     matches.push({
       round,
@@ -346,7 +347,7 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
       winRate: projection.winRate,
       roll,
       win,
-      logs: projection.logs,
+      logs: [...battleLogs, ...projection.logs],
       mvp: projection.mvp,
       risk: projection.risk,
     });
@@ -377,9 +378,11 @@ function simulateOpponent(team: Pokemon[], enemy: Pokemon[], round: string, oppo
   const projection = calculateWinProjection(team, enemy);
   const roll = Math.random();
   const win = roll <= projection.winRate;
+  const opponentName = opponent?.name ?? "상대";
+  const battleLogs = createBattleFeed(team, enemy, win, { opponentName });
   const logs = opponent
-    ? [`상대 엔트리: ${opponent.name} (${opponent.title})`, ...projection.logs]
-    : projection.logs;
+    ? [`${opponent.title} ${opponent.name}와의 승부`, ...battleLogs, ...projection.logs]
+    : [...battleLogs, ...projection.logs];
 
   return {
     round,

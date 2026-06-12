@@ -9,6 +9,10 @@ export type WinProjection = {
   logs: string[];
 };
 
+type BattleFeedOptions = {
+  opponentName?: string;
+};
+
 type PairScore = {
   attacker: Pokemon;
   defender: Pokemon;
@@ -45,6 +49,70 @@ export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinPr
   };
 }
 
+export function createBattleFeed(
+  team: Pokemon[],
+  enemy: Pokemon[],
+  playerWins: boolean,
+  options: BattleFeedOptions = {},
+) {
+  const opponentName = options.opponentName ?? "상대";
+  const logs: string[] = [];
+  let playerActive: Pokemon | undefined = team[0];
+  let enemyActive: Pokemon | undefined = enemy[0];
+  const playerBench = team.slice(1);
+  const enemyBench = enemy.slice(1);
+
+  logs.push(`배틀 시작! 내 선봉 ${playerActive.displayName}, ${opponentName} 선봉 ${enemyActive.displayName}.`);
+
+  let exchanges = 0;
+  while (playerActive && enemyActive && exchanges < 12) {
+    exchanges += 1;
+
+    const enemySwitch = chooseSwitch(enemyActive, playerActive, enemyBench);
+    if (enemySwitch) {
+      enemyBench.splice(enemyBench.indexOf(enemySwitch), 1);
+      enemyBench.push(enemyActive);
+      logs.push(`${opponentName}, ${enemyActive.displayName}에서 ${enemySwitch.displayName} 교체.`);
+      enemyActive = enemySwitch;
+    }
+
+    const playerSwitch = chooseSwitch(playerActive, enemyActive, playerBench);
+    if (playerSwitch) {
+      playerBench.splice(playerBench.indexOf(playerSwitch), 1);
+      playerBench.push(playerActive);
+      logs.push(`내 파티, ${playerActive.displayName}에서 ${playerSwitch.displayName} 교체.`);
+      playerActive = playerSwitch;
+    }
+
+    const loser = chooseExchangeLoser(playerActive, enemyActive, playerBench.length, enemyBench.length, playerWins);
+    const winner = loser === "enemy" ? playerActive : enemyActive;
+    const downed = loser === "enemy" ? enemyActive : playerActive;
+    logs.push(`${winner.displayName}의 ${bestAttackLabel(winner, downed)} 압박! ${downed.displayName} 다운!`);
+
+    if (loser === "enemy") {
+      enemyActive = enemyBench.shift();
+      if (enemyActive) logs.push(`${opponentName}, ${enemyActive.displayName} 등장.`);
+    } else {
+      playerActive = playerBench.shift();
+      if (playerActive) logs.push(`내 파티, ${playerActive.displayName} 등장.`);
+    }
+  }
+
+  if (playerWins && playerActive && enemyActive) {
+    logs.push(`${playerActive.displayName}이 마지막까지 버텼다. ${enemyActive.displayName} 다운!`);
+    enemyActive = undefined;
+  }
+
+  if (!playerWins && playerActive && enemyActive) {
+    logs.push(`${enemyActive.displayName}이 마무리했다. ${playerActive.displayName} 다운!`);
+    playerActive = undefined;
+  }
+
+  const survivors = playerWins ? (playerActive ? 1 : 0) + playerBench.length : (enemyActive ? 1 : 0) + enemyBench.length;
+  logs.push(playerWins ? `승리! 남은 포켓몬 ${survivors}마리.` : `패배... ${opponentName} 남은 포켓몬 ${survivors}마리.`);
+  return logs;
+}
+
 function scorePairs(attackers: Pokemon[], defenders: Pokemon[]) {
   return attackers.flatMap((attacker) =>
     defenders.map((defender) => {
@@ -67,8 +135,58 @@ function calculateTeamScore(team: Pokemon[], pairs: PairScore[]) {
   return rawPower * 0.52 + averagePairScore * 0.28 + topPairAverage * 0.2 + diversityBonus - duplicatePenalty;
 }
 
+function chooseSwitch(active: Pokemon, opponent: Pokemon, bench: Pokemon[]) {
+  if (bench.length === 0) return undefined;
+  const activeScore = duelScore(active, opponent);
+  const replacement = maxBy(bench, (mon) => duelScore(mon, opponent));
+  const replacementScore = duelScore(replacement, opponent);
+  const isPinned = bestAttackMultiplier(opponent.types, active.types) >= 2;
+
+  if (replacementScore > activeScore + 85 && (isPinned || Math.random() < 0.45)) {
+    return replacement;
+  }
+
+  return undefined;
+}
+
+function chooseExchangeLoser(
+  playerActive: Pokemon,
+  enemyActive: Pokemon,
+  playerBenchCount: number,
+  enemyBenchCount: number,
+  playerWins: boolean,
+) {
+  if (playerWins && enemyBenchCount === 0) return "enemy";
+  if (!playerWins && playerBenchCount === 0) return "player";
+
+  const playerEdge = duelScore(playerActive, enemyActive) - duelScore(enemyActive, playerActive);
+  const upsetChance = clamp(0.28 - Math.abs(playerEdge) / 1200, 0.08, 0.28);
+  const favoredLoser = playerEdge >= 0 ? "enemy" : "player";
+  const resultByMatchup = Math.random() < upsetChance ? oppositeSide(favoredLoser) : favoredLoser;
+
+  if (playerWins) return Math.random() < 0.72 ? "enemy" : resultByMatchup;
+  return Math.random() < 0.72 ? "player" : resultByMatchup;
+}
+
+function oppositeSide(side: "player" | "enemy") {
+  return side === "player" ? "enemy" : "player";
+}
+
+function duelScore(attacker: Pokemon, defender: Pokemon) {
+  const attackMultiplier = bestAttackMultiplier(attacker.types, defender.types);
+  const defenseRisk = bestAttackMultiplier(defender.types, attacker.types);
+  return pokemonPower(attacker) * matchupBoost(attackMultiplier) - pokemonPower(defender) * matchupRisk(defenseRisk) * 0.36;
+}
+
 function pokemonPower(mon: Pokemon) {
   return mon.total + mon.attack * 0.35 + mon.defense * 0.25 + mon.hp * 0.2;
+}
+
+function bestAttackLabel(attacker: Pokemon, defender: Pokemon) {
+  const bestType = maxBy(attacker.types, (attackType) =>
+    Math.max(...defender.types.map((defenseType) => typeChart[attackType]?.[defenseType] ?? 1)),
+  );
+  return typeLabels[bestType];
 }
 
 function bestAttackMultiplier(attackerTypes: TypeName[], defenderTypes: TypeName[]) {
