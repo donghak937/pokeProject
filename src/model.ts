@@ -24,6 +24,7 @@ export type Generation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type Pokemon = {
   name: string;
+  displayName: string;
   dex: number;
   gen: Generation;
   types: TypeName[];
@@ -53,15 +54,36 @@ export type MatchResult =
     };
 
 export const generationLabels: Record<Generation, string> = {
-  1: "Kanto",
-  2: "Johto",
-  3: "Hoenn",
-  4: "Sinnoh",
-  5: "Unova",
-  6: "Kalos",
-  7: "Alola",
-  8: "Galar",
-  9: "Paldea",
+  1: "관동",
+  2: "성도",
+  3: "호연",
+  4: "신오",
+  5: "하나",
+  6: "칼로스",
+  7: "알로라",
+  8: "가라르",
+  9: "팔데아",
+};
+
+export const typeLabels: Record<TypeName, string> = {
+  Normal: "노말",
+  Fire: "불꽃",
+  Water: "물",
+  Grass: "풀",
+  Electric: "전기",
+  Ice: "얼음",
+  Fighting: "격투",
+  Poison: "독",
+  Ground: "땅",
+  Flying: "비행",
+  Psychic: "에스퍼",
+  Bug: "벌레",
+  Rock: "바위",
+  Ghost: "고스트",
+  Dragon: "드래곤",
+  Dark: "악",
+  Steel: "강철",
+  Fairy: "페어리",
 };
 
 const seedPokemon = [
@@ -123,7 +145,7 @@ const seedPokemon = [
   p("Koraidon", 9, ["Fighting", "Dragon"], 670, 100, 135, 115, "K"),
 ] satisfies Pokemon[];
 
-const pokerogueAssetBase = "https://raw.githubusercontent.com/pagefaultgames/pokerogue-assets/beta/images/pokemon";
+const spriteAssetBase = "/pokemon-sprites";
 
 const dexNumbers: Record<string, number> = {
   Venusaur: 3,
@@ -184,13 +206,73 @@ const dexNumbers: Record<string, number> = {
   Koraidon: 1007,
 };
 
+const koreanNames: Record<string, string> = {
+  Venusaur: "이상해꽃",
+  Charizard: "리자몽",
+  Blastoise: "거북왕",
+  Pikachu: "피카츄",
+  Gengar: "팬텀",
+  Dragonite: "망나뇽",
+  Mewtwo: "뮤츠",
+  Snorlax: "잠만보",
+  Scizor: "핫삼",
+  Tyranitar: "마기라스",
+  Lugia: "루기아",
+  "Ho-Oh": "칠색조",
+  Heracross: "헤라크로스",
+  Kingdra: "킹드라",
+  Sceptile: "나무킹",
+  Blaziken: "번치코",
+  Swampert: "대짱이",
+  Gardevoir: "가디안",
+  Metagross: "메타그로스",
+  Rayquaza: "레쿠쟈",
+  Torterra: "토대부기",
+  Infernape: "초염몽",
+  Empoleon: "엠페르트",
+  Garchomp: "한카리아스",
+  Lucario: "루카리오",
+  Darkrai: "다크라이",
+  Serperior: "샤로다",
+  Emboar: "염무왕",
+  Samurott: "대검귀",
+  Zoroark: "조로아크",
+  Volcarona: "불카모스",
+  Hydreigon: "삼삼드래",
+  Chesnaught: "브리가론",
+  Delphox: "마폭시",
+  Greninja: "개굴닌자",
+  Talonflame: "파이어로",
+  Aegislash: "킬가르도",
+  Xerneas: "제르네아스",
+  Decidueye: "모크나이퍼",
+  Incineroar: "어흥염",
+  Primarina: "누리레느",
+  Mimikyu: "따라큐",
+  "Kommo-o": "짜랑고우거",
+  Solgaleo: "솔가레오",
+  Rillaboom: "고릴타",
+  Cinderace: "에이스번",
+  Inteleon: "인텔리레온",
+  Corviknight: "아머까오",
+  Dragapult: "드래펄트",
+  Zacian: "자시안",
+  Meowscarada: "마스카나",
+  Skeledirge: "라우드본",
+  Quaquaval: "웨이니발",
+  Tinkaton: "두드리짱",
+  Baxcalibur: "드닐레이브",
+  Koraidon: "코라이돈",
+};
+
 export const pokemon = seedPokemon.map((mon) => {
   const dex = dexNumbers[mon.name];
   return {
     ...mon,
     dex,
+    displayName: koreanNames[mon.name] ?? mon.name,
     score: monScore(mon),
-    spriteUrl: `${pokerogueAssetBase}/${dex}.png`,
+    spriteUrl: `${spriteAssetBase}/${dex}.png`,
   };
 });
 
@@ -235,7 +317,7 @@ function p(
   defense: number,
   mark: string,
 ): Pokemon {
-  return { name, dex: 0, gen, types, total, hp, attack, defense, mark, score: 0 };
+  return { name, displayName: name, dex: 0, gen, types, total, hp, attack, defense, mark, score: 0 };
 }
 
 function monScore(mon: Pick<Pokemon, "total" | "attack" | "defense" | "hp">) {

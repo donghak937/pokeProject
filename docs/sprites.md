@@ -14,9 +14,9 @@ Useful references:
 
 ## Current Decision
 
-Use PokeRogue Pokemon sprites for a non-commercial friends-only prototype. The app loads them from the public `beta` branch raw URLs and keeps the integration pluggable through `spriteUrl`.
+Use PokeRogue Pokemon sprites for a non-commercial friends-only prototype. The app uses local first-frame PNGs generated from the public `beta` branch sheets and keeps the integration pluggable through `spriteUrl`.
 
-The PokeRogue Pokemon PNG files are animation sheets, so the UI crops the top-left frame for now instead of trying to run the full animation metadata.
+The PokeRogue Pokemon PNG files are animation sheets, so this prototype extracts one normalized 128x128 frame per seeded Pokemon into `public/pokemon-sprites`.
 
 Before shipping publicly:
 

@@ -10,12 +10,13 @@ import {
   teamPower,
   typeColors,
   typeGradient,
+  typeLabels,
   type DraftRule,
   type MatchResult,
   type Pokemon,
 } from "./model";
 
-const rounds = ["Round of 16", "Quarterfinal", "Semifinal", "Final"] as const;
+const rounds = ["16강", "8강", "4강", "결승"] as const;
 
 function App() {
   const [team, setTeam] = React.useState<Pokemon[]>([]);
@@ -25,7 +26,7 @@ function App() {
 
   const pickNumber = team.length + 1;
   const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
-  const ruleSuffix = exactMatches < choices.length ? " + wildcards" : "";
+  const ruleSuffix = exactMatches < choices.length ? " + 와일드카드" : "";
   const isDrafting = team.length < 6;
   const champion = matches.length > 0 && matches.every((match) => match.skipped || match.win);
 
@@ -57,26 +58,26 @@ function App() {
 
   return (
     <main className="app">
-      <section className="topbar" aria-label="Game status">
+      <section className="topbar" aria-label="게임 상태">
         <div>
-          <p className="eyebrow">Fan Draft Battle</p>
-          <h1>Type Draft Arena</h1>
+          <p className="eyebrow">팬 드래프트 배틀</p>
+          <h1>타입 드래프트 아레나</h1>
         </div>
         <div className="status-strip">
-          <Status label="Pick" value={isDrafting ? `${pickNumber} / 6` : "Complete"} />
-          <Status label="Rule" value={`Gen ${rule.gen} ${generationLabels[rule.gen]} · ${rule.type}${ruleSuffix}`} />
+          <Status label="선택" value={isDrafting ? `${pickNumber} / 6` : "완성"} />
+          <Status label="조건" value={`${rule.gen}세대 ${generationLabels[rule.gen]} · ${typeLabels[rule.type]}${ruleSuffix}`} />
           <button className="primary-action" type="button" onClick={startRun}>
             <RotateCcw size={18} />
-            New Run
+            새로 시작
           </button>
         </div>
       </section>
 
       <section className="board">
-        <aside className="team-panel" aria-label="Your team">
+        <aside className="team-panel" aria-label="내 파티">
           <div className="panel-heading">
-            <h2>Your Party</h2>
-            <span>{Math.round(teamPower(team))} pts</span>
+            <h2>내 파티</h2>
+            <span>{Math.round(teamPower(team))}점</span>
           </div>
           <div className="team-slots">
             {Array.from({ length: 6 }, (_, index) => {
@@ -89,12 +90,12 @@ function App() {
         <section className="draft-panel">
           <div className="draft-heading">
             <div>
-              <p className="eyebrow">Random Rule</p>
-              <h2>{isDrafting ? `Choose party member ${pickNumber}` : "Party locked"}</h2>
+              <p className="eyebrow">랜덤 조건</p>
+              <h2>{isDrafting ? `${pickNumber}번째 파티원을 고르세요` : "파티 선택 완료"}</h2>
             </div>
             <div className="rule-card">
-              <span>Gen {rule.gen} {generationLabels[rule.gen]}</span>
-              <strong>Type {rule.type}</strong>
+              <span>{rule.gen}세대 {generationLabels[rule.gen]}</span>
+              <strong>{typeLabels[rule.type]} 타입</strong>
             </div>
           </div>
           <div className="choices" aria-live="polite">
@@ -106,15 +107,15 @@ function App() {
       </section>
 
       {matches.length > 0 && (
-        <section className="tournament" aria-label="Tournament result">
+        <section className="tournament" aria-label="토너먼트 결과">
           <div className="tournament-heading">
             <div>
-              <p className="eyebrow">Championship Run</p>
-              <h2>{champion ? "Champion Run Clear" : "Eliminated"}</h2>
+              <p className="eyebrow">챔피언 도전</p>
+              <h2>{champion ? "우승 성공" : "탈락"}</h2>
             </div>
             <button className="primary-action" type="button" onClick={simulateAgain}>
               <Swords size={18} />
-              Sim Again
+              다시 시뮬
             </button>
           </div>
           <div className="bracket">
@@ -123,7 +124,7 @@ function App() {
         </section>
       )}
       <footer className="asset-credit">
-        Pokemon sprites from PokeRogue assets. Non-commercial friends-only prototype.
+        포켓몬 스프라이트 출처: PokeRogue assets. 비상업 친구용 프로토타입.
       </footer>
     </main>
   );
@@ -143,18 +144,18 @@ function ChoiceCard({ pokemon: mon, onPick }: { pokemon: Pokemon; onPick: (pokem
     <article className="choice" style={{ "--accent": typeColors[mon.types[0]] } as React.CSSProperties}>
       <div>
         <PokemonPortrait pokemon={mon} large />
-        <h3>{mon.name}</h3>
-        <div className="meta">Gen {mon.gen} {generationLabels[mon.gen]} 쨌 BST {mon.total}</div>
+        <h3>{mon.displayName}</h3>
+        <div className="meta">{mon.gen}세대 {generationLabels[mon.gen]} · 종족값 {mon.total}</div>
         <div className="type-row">{mon.types.map(typeChip)}</div>
-        <div className="score-line">Draft score {Math.round(mon.score)}</div>
+        <div className="score-line">드래프트 점수 {Math.round(mon.score)}</div>
         <div className="stats">
-          <StatBar label="HP" value={mon.hp} max={160} />
-          <StatBar label="ATK" value={mon.attack} max={150} />
-          <StatBar label="DEF" value={mon.defense} max={140} />
+          <StatBar label="체력" value={mon.hp} max={160} />
+          <StatBar label="공격" value={mon.attack} max={150} />
+          <StatBar label="방어" value={mon.defense} max={140} />
         </div>
       </div>
       <button className="pick-button" type="button" onClick={() => onPick(mon)}>
-        Pick
+        선택
       </button>
     </article>
   );
@@ -165,8 +166,8 @@ function TeamSlot({ pokemon: mon }: { pokemon: Pokemon }) {
     <article className="slot">
       <PokemonPortrait pokemon={mon} />
       <div>
-        <h3>{mon.name}</h3>
-        <div className="meta">{mon.types.join(" / ")} 쨌 {Math.round(mon.score)} pts</div>
+        <h3>{mon.displayName}</h3>
+        <div className="meta">{mon.types.map((type) => typeLabels[type]).join(" / ")} · {Math.round(mon.score)}점</div>
       </div>
     </article>
   );
@@ -177,8 +178,8 @@ function EmptySlot({ index }: { index: number }) {
     <article className="slot empty">
       <div className="mark">{index}</div>
       <div>
-        <h3>Empty Slot</h3>
-        <div className="meta">Pick from candidates</div>
+        <h3>빈 슬롯</h3>
+        <div className="meta">후보에서 선택</div>
       </div>
     </article>
   );
@@ -219,10 +220,10 @@ function LockedParty({ onSimulate }: { onSimulate: () => void }) {
   return (
     <article className="locked-party">
       <Swords size={48} />
-      <h3>Draft complete</h3>
-      <p>Run the bracket again with the same six picks, or start a fresh run.</p>
+      <h3>드래프트 완료</h3>
+      <p>같은 여섯 마리로 다시 시뮬레이션하거나 새 런을 시작할 수 있습니다.</p>
       <button className="pick-button" type="button" onClick={onSimulate}>
-        Simulate
+        시뮬레이션
       </button>
     </article>
   );
@@ -233,7 +234,7 @@ function MatchCard({ match }: { match: MatchResult }) {
     return (
       <article className="match">
         <h3>{match.round}</h3>
-        <p className="meta">The run ended before this match.</p>
+        <p className="meta">이 경기 전에 이미 탈락했습니다.</p>
       </article>
     );
   }
@@ -241,10 +242,10 @@ function MatchCard({ match }: { match: MatchResult }) {
   return (
     <article className="match">
       <h3>{match.round}</h3>
-      <p className={match.win ? "win" : "lose"}>{match.win ? "Win" : "Loss"}</p>
-      <p className="meta">Your party {Math.round(match.playerScore)} pts</p>
-      <p className="meta">Opponent {Math.round(match.enemyScore)} pts</p>
-      <p className="meta">{match.enemy.map((mon) => mon.name).join(", ")}</p>
+      <p className={match.win ? "win" : "lose"}>{match.win ? "승리" : "패배"}</p>
+      <p className="meta">내 파티 {Math.round(match.playerScore)}점</p>
+      <p className="meta">상대 {Math.round(match.enemyScore)}점</p>
+      <p className="meta">{match.enemy.map((mon) => mon.displayName).join(", ")}</p>
     </article>
   );
 }
@@ -252,7 +253,7 @@ function MatchCard({ match }: { match: MatchResult }) {
 function typeChip(type: Pokemon["types"][number]) {
   return (
     <span className="chip" style={{ background: typeColors[type] }} key={type}>
-      {type}
+      {typeLabels[type]}
     </span>
   );
 }
