@@ -69,12 +69,13 @@ export function createBattleFeed(
   let enemyActive: Pokemon | undefined = enemy[0];
   const playerBench = team.slice(1);
   const enemyBench = enemy.slice(1);
+  const hp = new Map<string, number>([...team, ...enemy].map((mon) => [mon.name, 100]));
 
   logs.push(`배틀 시작! 내 선봉 ${playerActive.displayName}, ${opponentName} 선봉 ${enemyActive.displayName}.`);
 
-  let exchanges = 0;
-  while (playerActive && enemyActive && exchanges < 12) {
-    exchanges += 1;
+  let turns = 0;
+  while (playerActive && enemyActive && turns < 48) {
+    turns += 1;
 
     const enemySwitch = chooseSwitch(enemyActive, playerActive, enemyBench);
     if (enemySwitch) {
@@ -92,29 +93,55 @@ export function createBattleFeed(
       playerActive = playerSwitch;
     }
 
-    const loser = chooseExchangeLoser(playerActive, enemyActive, playerBench.length, enemyBench.length, playerWins);
-    const winner = loser === "enemy" ? playerActive : enemyActive;
-    const downed = loser === "enemy" ? enemyActive : playerActive;
-    const winnerMoves = loser === "enemy" ? options.playerMoves : options.enemyMoves;
-    logs.push(formatMoveKnockout(winner, downed, winnerMoves));
+    const firstSide = playerActive.speed >= enemyActive.speed ? "player" : "enemy";
+    const actions = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
 
-    if (loser === "enemy") {
-      enemyActive = enemyBench.shift();
-      if (enemyActive) logs.push(`${opponentName}, ${enemyActive.displayName} 등장.`);
-    } else {
-      playerActive = playerBench.shift();
-      if (playerActive) logs.push(`내 파티, ${playerActive.displayName} 등장.`);
+    for (const side of actions) {
+      if (!playerActive || !enemyActive) break;
+      const attacker = side === "player" ? playerActive : enemyActive;
+      const defender = side === "player" ? enemyActive : playerActive;
+      const moveSet = side === "player" ? options.playerMoves : options.enemyMoves;
+      const bias = side === "player" === playerWins ? 1.08 : 0.88;
+      const result = calculateMoveDamage(attacker, defender, moveSet?.[attacker.name], bias);
+      const nextHp = Math.max(0, Math.round((hp.get(defender.name) ?? 100) - result.damage));
+      hp.set(defender.name, nextHp);
+      logs.push(formatMoveDamage(attacker, defender, result, nextHp));
+
+      if (nextHp > 0) continue;
+
+      logs.push(`${defender.displayName} 다운!`);
+      if (side === "player") {
+        enemyActive = enemyBench.shift();
+        if (enemyActive) logs.push(`${opponentName}, ${enemyActive.displayName} 등장.`);
+      } else {
+        playerActive = playerBench.shift();
+        if (playerActive) logs.push(`내 파티, ${playerActive.displayName} 등장.`);
+      }
     }
   }
 
   if (playerWins && playerActive && enemyActive) {
-    logs.push(formatMoveKnockout(playerActive, enemyActive, options.playerMoves, true));
+    const result = calculateMoveDamage(playerActive, enemyActive, options.playerMoves?.[playerActive.name], 1.25);
+    logs.push(formatMoveDamage(playerActive, enemyActive, result, 0));
+    logs.push(`${enemyActive.displayName} 다운!`);
     enemyActive = undefined;
   }
 
   if (!playerWins && playerActive && enemyActive) {
-    logs.push(formatMoveKnockout(enemyActive, playerActive, options.enemyMoves, true));
+    const result = calculateMoveDamage(enemyActive, playerActive, options.enemyMoves?.[enemyActive.name], 1.25);
+    logs.push(formatMoveDamage(enemyActive, playerActive, result, 0));
+    logs.push(`${playerActive.displayName} 다운!`);
     playerActive = undefined;
+  }
+
+  while (playerWins && enemyBench.length > 0) {
+    const downed = enemyBench.shift();
+    if (downed) logs.push(`${opponentName}, ${downed.displayName} 다운!`);
+  }
+
+  while (!playerWins && playerBench.length > 0) {
+    const downed = playerBench.shift();
+    if (downed) logs.push(`내 파티, ${downed.displayName} 다운!`);
   }
 
   const survivors = playerWins ? (playerActive ? 1 : 0) + playerBench.length : (enemyActive ? 1 : 0) + enemyBench.length;
@@ -241,16 +268,40 @@ function attackModeLabel(mode: AttackMode) {
   return mode === "physical" ? "물리 우세" : "특수 우세";
 }
 
-function formatMoveKnockout(attacker: Pokemon, defender: Pokemon, moveSet?: MoveSet, finisher = false) {
-  const move = chooseBestMove(attacker, defender, moveSet?.[attacker.name]);
+function calculateMoveDamage(attacker: Pokemon, defender: Pokemon, moves: BattleMove[] | undefined, bias: number) {
+  const move = chooseBestMove(attacker, defender, moves);
   if (!move) {
-    return `${attacker.displayName}의 ${bestAttackLabel(attacker, defender)} 압박! ${defender.displayName} 다운!`;
+    return {
+      move: undefined,
+      damage: clamp(Math.round((duelScore(attacker, defender) / 38) * bias), 8, 34),
+      multiplier: bestAttackMultiplier(attacker.types, defender.types),
+    };
   }
 
   const multiplier = bestAttackMultiplier([move.type], defender.types);
-  const effectText = formatEffectText(multiplier);
-  const finisherText = finisher ? "마무리! " : "";
-  return `${attacker.displayName}의 ${move.displayName}! ${effectText}${finisherText}${defender.displayName} 다운!`;
+  const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+  const attackStat =
+    move.category === "physical" ? attacker.attack : move.category === "special" ? attacker.specialAttack : Math.max(attacker.attack, attacker.specialAttack) * 0.6;
+  const defenseStat =
+    move.category === "physical" ? defender.defense : move.category === "special" ? defender.specialDefense : Math.max(defender.defense, defender.specialDefense);
+  const power = move.power ?? 25;
+  const accuracy = (move.accuracy ?? 100) / 100;
+  const randomFactor = 0.88 + Math.random() * 0.16;
+  const raw = ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * accuracy) / Math.max(40, defender.hp)) * 18;
+  const damage = clamp(Math.round(raw * randomFactor * bias), multiplier >= 2 ? 12 : 4, multiplier >= 4 ? 88 : 68);
+
+  return { move, damage, multiplier };
+}
+
+function formatMoveDamage(
+  attacker: Pokemon,
+  defender: Pokemon,
+  result: { move?: BattleMove; damage: number; multiplier: number },
+  nextHp: number,
+) {
+  const moveName = result.move?.displayName ?? `${bestAttackLabel(attacker, defender)} 공격`;
+  const effectText = formatEffectText(result.multiplier);
+  return `${attacker.displayName}의 ${moveName}! ${effectText}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${nextHp}%.`;
 }
 
 function chooseBestMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[] = []) {
