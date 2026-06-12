@@ -30,6 +30,8 @@ export type BattleAbility = {
   id: string;
   name: string;
   description: string;
+  isHidden?: boolean;
+  slot?: number;
 };
 
 export type BattleMove = {
@@ -63,6 +65,7 @@ export type Pokemon = {
   mark: string;
   score: number;
   movePool: BattleMove[];
+  abilities?: BattleAbility[];
   spriteUrl?: string;
 };
 

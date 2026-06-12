@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build",
     "data:generate": "node scripts/generate-pokemon-data.mjs",
     "data:moves": "node scripts/patch-pokemon-moves.mjs",
+    "data:abilities": "node scripts/patch-pokemon-abilities.mjs",
+    "data:all": "npm run data:generate && npm run data:moves && npm run data:abilities",
     "sprites:extract": "powershell -ExecutionPolicy Bypass -File scripts/extract-pokerogue-sprites.ps1",
     "preview": "vite preview"
   },

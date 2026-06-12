@@ -564,7 +564,10 @@ function LockedParty({
 function AbilityPanel({ ability, compact = false }: { ability: BattleAbility; compact?: boolean }) {
   return (
     <article className={compact ? "ability-panel compact" : "ability-panel"}>
-      <strong>특성: {ability.name}</strong>
+      <strong>
+        특성: {ability.name}
+        {ability.isHidden ? <span>숨겨진 특성</span> : null}
+      </strong>
       <p>{ability.description}</p>
     </article>
   );
@@ -931,51 +934,13 @@ function rollMoves(mon: Pokemon) {
 }
 
 function rollAbility(mon: Pokemon) {
-  return randomItem(abilityPool(mon));
+  const actualAbilities = mon.abilities?.filter((ability) => ability.id && ability.name) ?? [];
+  if (actualAbilities.length > 0) return randomItem(actualAbilities);
+  return { id: "unknown", name: "특성 없음", description: "PokeAPI 특성 데이터가 없습니다." };
 }
 
 function buildAbilitySet(team: Pokemon[]) {
   return Object.fromEntries(team.map((mon) => [mon.name, rollAbility(mon)]));
-}
-
-function abilityPool(mon: Pokemon): BattleAbility[] {
-  const pool: BattleAbility[] = [
-    { id: "adaptability", name: "적응력", description: "자기 타입 기술의 보정이 더 강해집니다." },
-    { id: "sturdy", name: "옹골참", description: "한 번에 쓰러질 피해를 버텨낼 수 있습니다." },
-  ];
-
-  if (mon.attack >= mon.specialAttack + 25) {
-    pool.push({ id: "guts", name: "근성", description: "상태이상일 때 물리 공격이 강해지고 화상 약화를 덜 받습니다." });
-  }
-  if (mon.attack >= 110) {
-    pool.push({ id: "huge-power", name: "천하장사", description: "물리 공격력이 크게 상승합니다." });
-  }
-  if (mon.defense >= 105) {
-    pool.push({ id: "marvel-scale", name: "이상한비늘", description: "상태이상일 때 방어가 상승합니다." });
-  }
-  if (mon.speed >= 100) {
-    pool.push({ id: "speed-boost", name: "가속", description: "턴이 끝날 때마다 스피드가 조금씩 상승합니다." });
-  }
-  if (mon.types.includes("Flying") || mon.types.includes("Ghost")) {
-    pool.push({ id: "levitate", name: "부유", description: "땅 타입 공격을 무효화합니다." });
-  }
-  if (mon.types.includes("Fire")) {
-    pool.push({ id: "flash-fire", name: "타오르는불꽃", description: "불꽃 타입 공격을 무효화합니다." });
-  }
-  if (mon.types.includes("Ice") || mon.types.includes("Water")) {
-    pool.push({ id: "thick-fat", name: "두꺼운지방", description: "불꽃과 얼음 타입 피해를 줄입니다." });
-  }
-  if (mon.types.includes("Poison") || mon.types.includes("Steel")) {
-    pool.push({ id: "immunity", name: "면역", description: "독 상태가 되지 않습니다." });
-  }
-  if (mon.types.includes("Electric")) {
-    pool.push({ id: "limber", name: "유연", description: "마비 상태가 되지 않습니다." });
-  }
-  if (mon.types.includes("Dark") || mon.types.includes("Dragon")) {
-    pool.push({ id: "intimidate", name: "위협", description: "등장할 때 상대의 공격을 낮춥니다." });
-  }
-
-  return pool;
 }
 
 function buildMoveSet(team: Pokemon[]): MoveSet {
