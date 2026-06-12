@@ -526,6 +526,16 @@ h2 {
   font-weight: 1000;
 }
 
+.ability-panel strong span.implemented {
+  background: rgba(105, 213, 154, 0.18);
+  color: var(--good);
+}
+
+.ability-panel strong span.pending {
+  background: rgba(170, 181, 196, 0.14);
+  color: var(--muted);
+}
+
 .ability-panel p {
   margin: 0;
   color: var(--muted);

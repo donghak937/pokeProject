@@ -36,6 +36,11 @@ type BattleStatusState = {
   condition: StatusCondition;
   turns: number;
 };
+type WeatherCondition = "rain" | "sun" | "sand" | "snow";
+type WeatherState = {
+  condition?: WeatherCondition;
+  turns: number;
+};
 
 export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinProjection {
   const playerPairs = scorePairs(team, enemy);
@@ -81,6 +86,7 @@ export function createBattleFeed(
   const hp = new Map<string, number>([...team, ...enemy].map((mon) => [mon.name, 100]));
   const stages = new Map<string, BattleStages>([...team, ...enemy].map((mon) => [mon.name, emptyStages()]));
   const statuses = new Map<string, BattleStatusState>();
+  const weather: WeatherState = { turns: 0 };
   const sturdyUsed = new Set<string>();
   const playerAbilities = options.playerAbilities ?? {};
   const enemyAbilities = options.enemyAbilities ?? {};
@@ -88,8 +94,12 @@ export function createBattleFeed(
     side === "player" ? playerAbilities[mon.name] : enemyAbilities[mon.name];
 
   logs.push(`배틀 시작! 내 선봉 ${playerActive.displayName}, ${opponentName} 선봉 ${enemyActive.displayName}.`);
-  logs.push(...applyEntryAbility(playerActive, enemyActive, abilityFor("player", playerActive), stages, "내 파티"));
-  logs.push(...applyEntryAbility(enemyActive, playerActive, abilityFor("enemy", enemyActive), stages, opponentName));
+  logs.push(
+    ...applyEntryAbility(playerActive, enemyActive, abilityFor("player", playerActive), abilityFor("enemy", enemyActive), stages, weather, "내 파티"),
+  );
+  logs.push(
+    ...applyEntryAbility(enemyActive, playerActive, abilityFor("enemy", enemyActive), abilityFor("player", playerActive), stages, weather, opponentName),
+  );
 
   let turns = 0;
   while (playerActive && enemyActive && turns < 48) {
@@ -98,24 +108,46 @@ export function createBattleFeed(
     const enemySwitch = chooseSwitch(enemyActive, playerActive, enemyBench);
     if (enemySwitch) {
       enemyBench.splice(enemyBench.indexOf(enemySwitch), 1);
+      logs.push(...applySwitchOutAbility(enemyActive, hp, statuses, abilityFor("enemy", enemyActive), opponentName));
       enemyBench.push(enemyActive);
       logs.push(`${opponentName}, ${enemyActive.displayName}에서 ${enemySwitch.displayName} 교체.`);
       enemyActive = enemySwitch;
-      logs.push(...applyEntryAbility(enemyActive, playerActive, abilityFor("enemy", enemyActive), stages, opponentName));
+      logs.push(
+        ...applyEntryAbility(
+          enemyActive,
+          playerActive,
+          abilityFor("enemy", enemyActive),
+          abilityFor("player", playerActive),
+          stages,
+          weather,
+          opponentName,
+        ),
+      );
     }
 
     const playerSwitch = chooseSwitch(playerActive, enemyActive, playerBench);
     if (playerSwitch) {
       playerBench.splice(playerBench.indexOf(playerSwitch), 1);
+      logs.push(...applySwitchOutAbility(playerActive, hp, statuses, abilityFor("player", playerActive), "내 파티"));
       playerBench.push(playerActive);
       logs.push(`내 파티, ${playerActive.displayName}에서 ${playerSwitch.displayName} 교체.`);
       playerActive = playerSwitch;
-      logs.push(...applyEntryAbility(playerActive, enemyActive, abilityFor("player", playerActive), stages, "내 파티"));
+      logs.push(
+        ...applyEntryAbility(
+          playerActive,
+          enemyActive,
+          abilityFor("player", playerActive),
+          abilityFor("enemy", enemyActive),
+          stages,
+          weather,
+          "내 파티",
+        ),
+      );
     }
 
     const firstSide =
-      modifiedStat(playerActive, "speed", stages, statuses, abilityFor("player", playerActive)) >=
-      modifiedStat(enemyActive, "speed", stages, statuses, abilityFor("enemy", enemyActive))
+      modifiedStat(playerActive, "speed", stages, statuses, abilityFor("player", playerActive), weather) >=
+      modifiedStat(enemyActive, "speed", stages, statuses, abilityFor("enemy", enemyActive), weather)
         ? "player"
         : "enemy";
     const actions = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
@@ -149,6 +181,7 @@ export function createBattleFeed(
         attackerAbility,
         defenderAbility,
         sturdyUsed,
+        weather,
       );
       if (result.missed) {
         logs.push(formatMoveDamage(attacker, defender, result, hp.get(defender.name) ?? 100));
@@ -162,33 +195,69 @@ export function createBattleFeed(
         statuses.set(defender.name, { condition: result.statusApplied, turns: initialStatusTurns(result.statusApplied) });
         logs.push(`${defender.displayName}${subjectParticle(defender.displayName)} ${statusLabel(result.statusApplied)} 상태가 되었다!`);
       }
+      if (result.attackerStatusApplied) {
+        statuses.set(attacker.name, { condition: result.attackerStatusApplied, turns: initialStatusTurns(result.attackerStatusApplied) });
+        logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} ${statusLabel(result.attackerStatusApplied)} 상태가 되었다!`);
+      }
 
       if (nextHp > 0) continue;
 
       logs.push(`${defender.displayName} 다운!`);
+      const knockoutLog = applyKnockoutAbility(attacker, abilityFor(side, attacker), stages);
+      if (knockoutLog) logs.push(knockoutLog);
       if (side === "player") {
         enemyActive = enemyBench.shift();
         if (enemyActive) {
           logs.push(`${opponentName}, ${enemyActive.displayName} 등장.`);
-          logs.push(...applyEntryAbility(enemyActive, playerActive, abilityFor("enemy", enemyActive), stages, opponentName));
+          logs.push(
+            ...applyEntryAbility(
+              enemyActive,
+              playerActive,
+              abilityFor("enemy", enemyActive),
+              abilityFor("player", playerActive),
+              stages,
+              weather,
+              opponentName,
+            ),
+          );
         }
       } else {
         playerActive = playerBench.shift();
         if (playerActive) {
           logs.push(`내 파티, ${playerActive.displayName} 등장.`);
-          logs.push(...applyEntryAbility(playerActive, enemyActive, abilityFor("player", playerActive), stages, "내 파티"));
+          logs.push(
+            ...applyEntryAbility(
+              playerActive,
+              enemyActive,
+              abilityFor("player", playerActive),
+              abilityFor("enemy", enemyActive),
+              stages,
+              weather,
+              "내 파티",
+            ),
+          );
         }
       }
     }
 
-    const endLogs = applyEndTurnStatus(playerActive, enemyActive, hp, statuses, stages, abilityFor);
+    const endLogs = applyEndTurnStatus(playerActive, enemyActive, hp, statuses, stages, weather, abilityFor);
     logs.push(...endLogs);
     if (playerActive && (hp.get(playerActive.name) ?? 100) <= 0) {
       logs.push(`${playerActive.displayName} 다운!`);
       playerActive = playerBench.shift();
       if (playerActive) {
         logs.push(`내 파티, ${playerActive.displayName} 등장.`);
-        logs.push(...applyEntryAbility(playerActive, enemyActive, abilityFor("player", playerActive), stages, "내 파티"));
+        logs.push(
+          ...applyEntryAbility(
+            playerActive,
+            enemyActive,
+            abilityFor("player", playerActive),
+            enemyActive ? abilityFor("enemy", enemyActive) : undefined,
+            stages,
+            weather,
+            "내 파티",
+          ),
+        );
       }
     }
     if (enemyActive && (hp.get(enemyActive.name) ?? 100) <= 0) {
@@ -196,7 +265,17 @@ export function createBattleFeed(
       enemyActive = enemyBench.shift();
       if (enemyActive) {
         logs.push(`${opponentName}, ${enemyActive.displayName} 등장.`);
-        logs.push(...applyEntryAbility(enemyActive, playerActive, abilityFor("enemy", enemyActive), stages, opponentName));
+        logs.push(
+          ...applyEntryAbility(
+            enemyActive,
+            playerActive,
+            abilityFor("enemy", enemyActive),
+            playerActive ? abilityFor("player", playerActive) : undefined,
+            stages,
+            weather,
+            opponentName,
+          ),
+        );
       }
     }
   }
@@ -212,6 +291,7 @@ export function createBattleFeed(
       abilityFor("player", playerActive),
       abilityFor("enemy", enemyActive),
       sturdyUsed,
+      weather,
     );
     logs.push(formatMoveDamage(playerActive, enemyActive, result, 0));
     logs.push(`${enemyActive.displayName} 다운!`);
@@ -229,6 +309,7 @@ export function createBattleFeed(
       abilityFor("enemy", enemyActive),
       abilityFor("player", playerActive),
       sturdyUsed,
+      weather,
     );
     logs.push(formatMoveDamage(enemyActive, playerActive, result, 0));
     logs.push(`${playerActive.displayName} 다운!`);
@@ -379,8 +460,10 @@ function calculateMoveDamage(
   attackerAbility?: BattleAbility,
   defenderAbility?: BattleAbility,
   sturdyUsed?: Set<string>,
+  weather?: WeatherState,
 ) {
   const move = chooseBestMove(attacker, defender, moves);
+  const effectiveDefenderAbility = ignoresDefensiveAbility(attackerAbility) ? undefined : defenderAbility;
   if (!move) {
     return {
       move: undefined,
@@ -392,18 +475,27 @@ function calculateMoveDamage(
     };
   }
 
-  const immunity = abilityImmunity(defenderAbility, move);
+  const immunity = abilityImmunity(defender, effectiveDefenderAbility, move, stages);
   if (immunity) {
-    return { move, damage: 0, multiplier: 0, missed: false, statusApplied: undefined, abilityNote: immunity };
+    return { move, damage: 0, multiplier: 0, missed: false, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: immunity };
   }
 
-  const multiplier = defenderAbility?.id === "levitate" && move.type === "Ground" ? 0 : bestAttackMultiplier([move.type], defender.types);
+  const rawMultiplier = bestAttackMultiplier([move.type], defender.types);
+  const multiplier =
+    attackerAbility?.id === "scrappy" && rawMultiplier === 0 && (move.type === "Normal" || move.type === "Fighting")
+      ? 1
+      : effectiveDefenderAbility?.id === "levitate" && move.type === "Ground"
+        ? 0
+        : rawMultiplier;
   const stab = attacker.types.includes(move.type) ? (attackerAbility?.id === "adaptability" ? 2 : 1.5) : 1;
   const burnAttackPenalty =
     move.category === "physical" && statuses?.get(attacker.name)?.condition === "burn" && attackerAbility?.id !== "guts" ? 0.55 : 1;
   const gutsBoost = attackerAbility?.id === "guts" && statuses?.has(attacker.name) && move.category === "physical" ? 1.35 : 1;
-  const hugePowerBoost = attackerAbility?.id === "huge-power" && move.category === "physical" ? 1.45 : 1;
-  const fatReduction = defenderAbility?.id === "thick-fat" && (move.type === "Fire" || move.type === "Ice") ? 0.7 : 1;
+  const hugePowerBoost =
+    (attackerAbility?.id === "huge-power" || attackerAbility?.id === "pure-power") && move.category === "physical" ? 1.45 : 1;
+  const fatReduction = effectiveDefenderAbility?.id === "thick-fat" && (move.type === "Fire" || move.type === "Ice") ? 0.7 : 1;
+  const weatherBoost = weatherDamageMultiplier(move, weather);
+  const abilityPowerBoost = abilityDamageMultiplier(attacker, defender, move, attackerAbility, effectiveDefenderAbility, weather, multiplier);
   const attackStat =
     move.category === "physical"
       ? modifiedStat(attacker, "attack", stages, statuses, attackerAbility) * burnAttackPenalty * gutsBoost * hugePowerBoost
@@ -415,32 +507,37 @@ function calculateMoveDamage(
           ) * 0.6;
   const defenseStat =
     move.category === "physical"
-      ? modifiedStat(defender, "defense", stages, statuses, defenderAbility)
+      ? modifiedStat(defender, "defense", stages, statuses, effectiveDefenderAbility)
       : move.category === "special"
-        ? modifiedStat(defender, "specialDefense", stages, statuses, defenderAbility)
+        ? modifiedStat(defender, "specialDefense", stages, statuses, effectiveDefenderAbility)
         : Math.max(
-            modifiedStat(defender, "defense", stages, statuses, defenderAbility),
-            modifiedStat(defender, "specialDefense", stages, statuses, defenderAbility),
+            modifiedStat(defender, "defense", stages, statuses, effectiveDefenderAbility),
+            modifiedStat(defender, "specialDefense", stages, statuses, effectiveDefenderAbility),
           );
   const power = move.power ?? 25;
-  const accuracy = (move.accuracy ?? 100) / 100;
+  const accuracy = modifiedAccuracy(move, attackerAbility, defenderAbility);
   if (Math.random() > accuracy) {
-    return { move, damage: 0, multiplier, missed: true, statusApplied: undefined, abilityNote: undefined };
+    return { move, damage: 0, multiplier, missed: true, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: undefined };
   }
 
   const randomFactor = 0.88 + Math.random() * 0.16;
-  const raw = ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * fatReduction) / Math.max(40, defender.hp)) * 18;
+  const raw =
+    ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * fatReduction * weatherBoost * abilityPowerBoost) /
+      Math.max(40, defender.hp)) *
+    18;
   let damage = clamp(Math.round(raw * randomFactor * bias), multiplier === 0 ? 0 : multiplier >= 2 ? 12 : 4, multiplier >= 4 ? 88 : 68);
   let abilityNote: string | undefined;
   const defenderHp = 100;
-  if (defenderAbility?.id === "sturdy" && damage >= defenderHp && !sturdyUsed?.has(defender.name)) {
+  if (effectiveDefenderAbility?.id === "sturdy" && damage >= defenderHp && !sturdyUsed?.has(defender.name)) {
     damage = 99;
     sturdyUsed?.add(defender.name);
     abilityNote = `${defender.displayName}의 옹골참! 아슬아슬하게 버텼다.`;
   }
-  const statusApplied = inferMoveStatusEffect(move, defender, defenderAbility, statuses);
+  abilityNote = abilityNote ?? applyHitReactionAbility(defender, effectiveDefenderAbility, move, stages);
+  const statusApplied = inferMoveStatusEffect(move, defender, effectiveDefenderAbility, statuses, attackerAbility);
+  const attackerStatusApplied = inferContactStatusEffect(move, attacker, effectiveDefenderAbility, statuses);
 
-  return { move, damage, multiplier, missed: false, statusApplied, abilityNote };
+  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote };
 }
 
 function formatMoveDamage(
@@ -502,16 +599,143 @@ function applyEntryAbility(
   active: Pokemon | undefined,
   opponent: Pokemon | undefined,
   ability: BattleAbility | undefined,
+  opponentAbility: BattleAbility | undefined,
   stages: Map<string, BattleStages>,
+  weather: WeatherState,
   ownerName: string,
 ) {
   if (!active || !opponent || !ability) return [];
-  if (ability.id !== "intimidate") return [];
+  const logs: string[] = [];
 
-  const opponentStages = stages.get(opponent.name) ?? emptyStages();
-  opponentStages.attack = clamp(opponentStages.attack - 1, -6, 6);
-  stages.set(opponent.name, opponentStages);
-  return [`${ownerName}, ${active.displayName}의 ${ability.name}! ${opponent.displayName}의 공격이 떨어졌다.`];
+  if (ability.id === "intimidate") {
+    if (preventsIntimidate(opponentAbility)) {
+      logs.push(`${opponent.displayName}의 ${opponentAbility?.name}! 위협을 받아치지 않았다.`);
+      return logs;
+    }
+    const opponentStages = stages.get(opponent.name) ?? emptyStages();
+    opponentStages.attack = clamp(opponentStages.attack - 1, -6, 6);
+    stages.set(opponent.name, opponentStages);
+    logs.push(`${ownerName}, ${active.displayName}의 ${ability.name}! ${opponent.displayName}의 공격이 떨어졌다.`);
+    if (opponentAbility?.id === "defiant") {
+      opponentStages.attack = clamp(opponentStages.attack + 3, -6, 6);
+      stages.set(opponent.name, opponentStages);
+      logs.push(`${opponent.displayName}의 ${opponentAbility.name}! 공격이 크게 올랐다.`);
+    }
+    if (opponentAbility?.id === "competitive") {
+      opponentStages.specialAttack = clamp(opponentStages.specialAttack + 2, -6, 6);
+      stages.set(opponent.name, opponentStages);
+      logs.push(`${opponent.displayName}의 ${opponentAbility.name}! 특공이 크게 올랐다.`);
+    }
+  }
+
+  if (ability.id === "download") {
+    const targetStat = opponent.defense <= opponent.specialDefense ? "attack" : "specialAttack";
+    const currentStages = stages.get(active.name) ?? emptyStages();
+    currentStages[targetStat] = clamp(currentStages[targetStat] + 1, -6, 6);
+    stages.set(active.name, currentStages);
+    logs.push(`${active.displayName}의 ${ability.name}! ${battleStatLabel(targetStat)}이 올랐다.`);
+  }
+
+  const entryBoost = entryStageBoost(ability.id);
+  if (entryBoost) {
+    const currentStages = stages.get(active.name) ?? emptyStages();
+    currentStages[entryBoost.stat] = clamp(currentStages[entryBoost.stat] + entryBoost.change, -6, 6);
+    stages.set(active.name, currentStages);
+    logs.push(`${active.displayName}의 ${ability.name}! ${battleStatLabel(entryBoost.stat)}이 올랐다.`);
+  }
+
+  const weatherSet = entryWeather(ability.id);
+  if (weatherSet) {
+    weather.condition = weatherSet.condition;
+    weather.turns = 5;
+    logs.push(`${active.displayName}의 ${ability.name}! ${weatherSet.label}`);
+  }
+
+  return logs;
+}
+
+function applySwitchOutAbility(
+  mon: Pokemon,
+  hp: Map<string, number>,
+  statuses: Map<string, BattleStatusState>,
+  ability: BattleAbility | undefined,
+  ownerName: string,
+) {
+  const logs: string[] = [];
+  if (ability?.id === "regenerator") {
+    const nextHp = Math.min(100, (hp.get(mon.name) ?? 100) + 25);
+    hp.set(mon.name, nextHp);
+    logs.push(`${ownerName}, ${mon.displayName}의 ${ability.name}! HP를 ${nextHp}%까지 회복했다.`);
+  }
+  if (ability?.id === "natural-cure" && statuses.has(mon.name)) {
+    statuses.delete(mon.name);
+    logs.push(`${mon.displayName}의 ${ability.name}! 상태이상이 회복됐다.`);
+  }
+  return logs;
+}
+
+function applyKnockoutAbility(attacker: Pokemon, ability: BattleAbility | undefined, stages: Map<string, BattleStages>) {
+  if (!ability) return undefined;
+  const currentStages = stages.get(attacker.name) ?? emptyStages();
+  if (ability.id === "moxie" || ability.id === "chilling-neigh" || ability.id === "as-one-glastrier") {
+    currentStages.attack = clamp(currentStages.attack + 1, -6, 6);
+    stages.set(attacker.name, currentStages);
+    return `${attacker.displayName}의 ${ability.name}! 공격이 올랐다.`;
+  }
+  if (ability.id === "grim-neigh" || ability.id === "as-one-spectrier") {
+    currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
+    stages.set(attacker.name, currentStages);
+    return `${attacker.displayName}의 ${ability.name}! 특공이 올랐다.`;
+  }
+  if (ability.id === "beast-boost") {
+    const stat = highestBattleStat(attacker);
+    currentStages[stat] = clamp(currentStages[stat] + 1, -6, 6);
+    stages.set(attacker.name, currentStages);
+    return `${attacker.displayName}의 ${ability.name}! ${battleStatLabel(stat)}이 올랐다.`;
+  }
+  return undefined;
+}
+
+function applyHitReactionAbility(
+  defender: Pokemon,
+  ability: BattleAbility | undefined,
+  move: BattleMove,
+  stages?: Map<string, BattleStages>,
+) {
+  if (!ability || !stages) return undefined;
+  const currentStages = stages.get(defender.name) ?? emptyStages();
+  if (ability.id === "weak-armor" && move.category === "physical") {
+    currentStages.defense = clamp(currentStages.defense - 1, -6, 6);
+    currentStages.speed = clamp(currentStages.speed + 2, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 방어가 떨어지고 스피드가 크게 올랐다.`;
+  }
+  if (ability.id === "stamina") {
+    currentStages.defense = clamp(currentStages.defense + 1, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 방어가 올랐다.`;
+  }
+  if (ability.id === "justified" && move.type === "Dark") {
+    currentStages.attack = clamp(currentStages.attack + 1, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 공격이 올랐다.`;
+  }
+  if (ability.id === "water-compaction" && move.type === "Water") {
+    currentStages.defense = clamp(currentStages.defense + 2, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 방어가 크게 올랐다.`;
+  }
+  if (ability.id === "steam-engine" && (move.type === "Fire" || move.type === "Water")) {
+    currentStages.speed = clamp(currentStages.speed + 3, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 스피드가 폭발적으로 올랐다.`;
+  }
+  if (ability.id === "rattled" && (move.type === "Bug" || move.type === "Ghost" || move.type === "Dark")) {
+    currentStages.speed = clamp(currentStages.speed + 1, -6, 6);
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 스피드가 올랐다.`;
+  }
+  return undefined;
 }
 
 function beforeActionStatus(mon: Pokemon, statuses: Map<string, BattleStatusState>) {
@@ -559,6 +783,7 @@ function applyEndTurnStatus(
   hp: Map<string, number>,
   statuses: Map<string, BattleStatusState>,
   stages: Map<string, BattleStages>,
+  weather: WeatherState,
   abilityFor: (side: "player" | "enemy", mon: Pokemon) => BattleAbility | undefined,
 ) {
   const logs: string[] = [];
@@ -569,15 +794,22 @@ function applyEndTurnStatus(
 
   activePairs.forEach(([side, mon]) => {
     if (!mon) return;
+    const ability = abilityFor(side, mon);
     const status = statuses.get(mon.name)?.condition;
     if (status === "burn" || status === "poison") {
+      if (ability?.id === "magic-guard") return;
+      if (ability?.id === "poison-heal" && status === "poison") {
+        const nextHp = Math.min(100, (hp.get(mon.name) ?? 100) + 10);
+        hp.set(mon.name, nextHp);
+        logs.push(`${mon.displayName}의 ${ability.name}! 독을 양분 삼아 HP를 ${nextHp}%까지 회복했다.`);
+        return;
+      }
       const damage = status === "burn" ? 6 : 8;
       const nextHp = Math.max(0, (hp.get(mon.name) ?? 100) - damage);
       hp.set(mon.name, nextHp);
       logs.push(`${mon.displayName}${subjectParticle(mon.displayName)} ${status === "burn" ? "화상" : "독"}으로 ${damage}% 피해를 입었다. 남은 HP ${nextHp}%.`);
     }
 
-    const ability = abilityFor(side, mon);
     if (ability?.id === "speed-boost") {
       const currentStages = stages.get(mon.name) ?? emptyStages();
       const before = currentStages.speed;
@@ -587,15 +819,132 @@ function applyEndTurnStatus(
         logs.push(`${mon.displayName}의 ${ability.name}! 스피드가 올랐다.`);
       }
     }
+
+    if ((ability?.id === "shed-skin" && statuses.has(mon.name) && Math.random() < 0.3) || (ability?.id === "hydration" && weather.condition === "rain")) {
+      statuses.delete(mon.name);
+      logs.push(`${mon.displayName}의 ${ability.name}! 상태이상이 회복됐다.`);
+    }
+
+    if (
+      (ability?.id === "rain-dish" && weather.condition === "rain") ||
+      (ability?.id === "ice-body" && weather.condition === "snow")
+    ) {
+      const nextHp = Math.min(100, (hp.get(mon.name) ?? 100) + 6);
+      hp.set(mon.name, nextHp);
+      logs.push(`${mon.displayName}의 ${ability.name}! HP를 ${nextHp}%까지 회복했다.`);
+    }
   });
+
+  if (weather.condition && weather.turns > 0) {
+    weather.turns -= 1;
+    if (weather.turns <= 0) {
+      logs.push(`${weatherLabel(weather.condition)}이 걷혔다.`);
+      weather.condition = undefined;
+    }
+  }
 
   return logs;
 }
 
-function abilityImmunity(ability: BattleAbility | undefined, move: BattleMove) {
-  if (ability?.id === "flash-fire" && move.type === "Fire") return `타오르는불꽃으로 불꽃 공격을 무효화했다!`;
-  if (ability?.id === "levitate" && move.type === "Ground") return `부유로 땅 공격을 피했다!`;
+function abilityImmunity(
+  defender: Pokemon,
+  ability: BattleAbility | undefined,
+  move: BattleMove,
+  stages?: Map<string, BattleStages>,
+) {
+  if (!ability) return undefined;
+  const currentStages = stages?.get(defender.name) ?? emptyStages();
+  if (ability.id === "flash-fire" && move.type === "Fire") return `${defender.displayName}의 ${ability.name}! 불꽃 공격을 무효화했다.`;
+  if (ability.id === "levitate" && move.type === "Ground") return `${defender.displayName}의 ${ability.name}! 땅 공격을 피했다.`;
+  if (ability.id === "water-absorb" && move.type === "Water") return `${defender.displayName}의 ${ability.name}! 물 공격을 흡수했다.`;
+  if (ability.id === "volt-absorb" && move.type === "Electric") return `${defender.displayName}의 ${ability.name}! 전기 공격을 흡수했다.`;
+  if (ability.id === "dry-skin" && move.type === "Water") return `${defender.displayName}의 ${ability.name}! 물 공격을 흡수했다.`;
+  if (ability.id === "earth-eater" && move.type === "Ground") return `${defender.displayName}의 ${ability.name}! 땅 공격을 흡수했다.`;
+  if (ability.id === "sap-sipper" && move.type === "Grass") {
+    currentStages.attack = clamp(currentStages.attack + 1, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 풀 공격을 막고 공격이 올랐다.`;
+  }
+  if (ability.id === "lightning-rod" && move.type === "Electric") {
+    currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 전기를 끌어모아 특공이 올랐다.`;
+  }
+  if (ability.id === "motor-drive" && move.type === "Electric") {
+    currentStages.speed = clamp(currentStages.speed + 1, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 전기를 받아 스피드가 올랐다.`;
+  }
+  if (ability.id === "storm-drain" && move.type === "Water") {
+    currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 물을 끌어모아 특공이 올랐다.`;
+  }
+  if (ability.id === "soundproof" && isSoundMove(move)) return `${defender.displayName}의 ${ability.name}! 소리 기술을 막았다.`;
+  if (ability.id === "bulletproof" && isBallMove(move)) return `${defender.displayName}의 ${ability.name}! 폭탄/구슬 기술을 막았다.`;
   return undefined;
+}
+
+function abilityDamageMultiplier(
+  attacker: Pokemon,
+  defender: Pokemon,
+  move: BattleMove,
+  attackerAbility: BattleAbility | undefined,
+  defenderAbility: BattleAbility | undefined,
+  weather?: WeatherState,
+  typeMultiplier = bestAttackMultiplier([move.type], defender.types),
+) {
+  let multiplier = 1;
+  const hpRatioHint = attacker.hp <= 55 ? 0.33 : 1;
+  if (attackerAbility?.id === "overgrow" && move.type === "Grass" && hpRatioHint <= 0.33) multiplier *= 1.5;
+  if (attackerAbility?.id === "blaze" && move.type === "Fire" && hpRatioHint <= 0.33) multiplier *= 1.5;
+  if (attackerAbility?.id === "torrent" && move.type === "Water" && hpRatioHint <= 0.33) multiplier *= 1.5;
+  if (attackerAbility?.id === "swarm" && move.type === "Bug" && hpRatioHint <= 0.33) multiplier *= 1.5;
+  if (attackerAbility?.id === "technician" && (move.power ?? 0) > 0 && (move.power ?? 0) <= 60) multiplier *= 1.5;
+  if (attackerAbility?.id === "sheer-force" && moveStatusEffect(move)) multiplier *= 1.3;
+  if (attackerAbility?.id === "iron-fist" && isPunchMove(move)) multiplier *= 1.2;
+  if (attackerAbility?.id === "strong-jaw" && isBiteMove(move)) multiplier *= 1.5;
+  if (attackerAbility?.id === "mega-launcher" && isPulseMove(move)) multiplier *= 1.5;
+  if (attackerAbility?.id === "reckless" && isRecoilMove(move)) multiplier *= 1.2;
+  if (attackerAbility?.id === "tough-claws" && isContactMove(move)) multiplier *= 1.25;
+  if (attackerAbility?.id === "sharpness" && isSlicingMove(move)) multiplier *= 1.5;
+  if (attackerAbility?.id === "punk-rock" && isSoundMove(move)) multiplier *= 1.3;
+  if (attackerAbility?.id === "sand-force" && weather?.condition === "sand" && ["Rock", "Ground", "Steel"].includes(move.type)) multiplier *= 1.3;
+  if (attackerAbility?.id === "solar-power" && weather?.condition === "sun" && move.category === "special") multiplier *= 1.35;
+  if (attackerAbility?.id === "steelworker" && move.type === "Steel") multiplier *= 1.5;
+  if (attackerAbility?.id === "water-bubble" && move.type === "Water") multiplier *= 1.6;
+  if (attackerAbility?.id === "tinted-lens" && typeMultiplier < 1 && typeMultiplier > 0) multiplier *= 2;
+  if (defenderAbility?.id === "filter" || defenderAbility?.id === "solid-rock" || defenderAbility?.id === "prism-armor") {
+    if (typeMultiplier > 1) multiplier *= 0.75;
+  }
+  if (defenderAbility?.id === "punk-rock" && isSoundMove(move)) multiplier *= 0.5;
+  if (defenderAbility?.id === "fluffy" && isContactMove(move)) multiplier *= move.type === "Fire" ? 1.2 : 0.65;
+  if (defenderAbility?.id === "heatproof" && move.type === "Fire") multiplier *= 0.5;
+  if (defenderAbility?.id === "water-bubble" && move.type === "Fire") multiplier *= 0.5;
+  if (defenderAbility?.id === "fur-coat" && move.category === "physical") multiplier *= 0.5;
+  if (defenderAbility?.id === "multiscale" || defenderAbility?.id === "shadow-shield") multiplier *= 0.75;
+  return multiplier;
+}
+
+function weatherDamageMultiplier(move: BattleMove, weather?: WeatherState) {
+  if (weather?.condition === "rain") {
+    if (move.type === "Water") return 1.35;
+    if (move.type === "Fire") return 0.65;
+  }
+  if (weather?.condition === "sun") {
+    if (move.type === "Fire") return 1.35;
+    if (move.type === "Water") return 0.65;
+  }
+  return 1;
+}
+
+function modifiedAccuracy(move: BattleMove, attackerAbility?: BattleAbility, defenderAbility?: BattleAbility) {
+  if (attackerAbility?.id === "no-guard" || defenderAbility?.id === "no-guard") return 1;
+  let accuracy = (move.accuracy ?? 100) / 100;
+  if (attackerAbility?.id === "compound-eyes") accuracy *= 1.3;
+  if (attackerAbility?.id === "hustle" && move.category === "physical") accuracy *= 0.82;
+  if (defenderAbility?.id === "wonder-skin" && move.category === "status") accuracy *= 0.5;
+  return clamp(accuracy, 0.05, 1);
 }
 
 function inferMoveStatusEffect(
@@ -603,17 +952,40 @@ function inferMoveStatusEffect(
   defender: Pokemon,
   defenderAbility: BattleAbility | undefined,
   statuses?: Map<string, BattleStatusState>,
+  attackerAbility?: BattleAbility,
 ): StatusCondition | undefined {
   if (statuses?.has(defender.name)) return undefined;
   const effect = moveStatusEffect(move);
-  if (!effect || Math.random() > effect.chance) return undefined;
+  if (!effect) return undefined;
+  if (defenderAbility?.id === "shield-dust") return undefined;
+  const chance = attackerAbility?.id === "serene-grace" ? Math.min(1, effect.chance * 2) : effect.chance;
+  if (Math.random() > chance) return undefined;
   if (defenderAbility?.id === "immunity" && effect.condition === "poison") return undefined;
   if (defenderAbility?.id === "limber" && effect.condition === "paralysis") return undefined;
+  if ((defenderAbility?.id === "insomnia" || defenderAbility?.id === "vital-spirit" || defenderAbility?.id === "sweet-veil") && effect.condition === "sleep") return undefined;
+  if (defenderAbility?.id === "water-veil" && effect.condition === "burn") return undefined;
+  if (defenderAbility?.id === "magma-armor" && effect.condition === "freeze") return undefined;
+  if (defenderAbility?.id === "own-tempo" && effect.condition === "confusion") return undefined;
   if (defender.types.includes("Fire") && effect.condition === "burn") return undefined;
   if ((defender.types.includes("Poison") || defender.types.includes("Steel")) && effect.condition === "poison") return undefined;
   if (defender.types.includes("Electric") && effect.condition === "paralysis") return undefined;
   if (defender.types.includes("Ice") && effect.condition === "freeze") return undefined;
   return effect.condition;
+}
+
+function inferContactStatusEffect(
+  move: BattleMove,
+  attacker: Pokemon,
+  defenderAbility: BattleAbility | undefined,
+  statuses?: Map<string, BattleStatusState>,
+): StatusCondition | undefined {
+  if (!defenderAbility || !isContactMove(move) || statuses?.has(attacker.name)) return undefined;
+  if (defenderAbility.id === "static" && Math.random() < 0.3) return "paralysis";
+  if (defenderAbility.id === "flame-body" && Math.random() < 0.3) return "burn";
+  if (defenderAbility.id === "poison-point" && Math.random() < 0.3) return "poison";
+  if (defenderAbility.id === "cute-charm" && Math.random() < 0.2) return "confusion";
+  if (defenderAbility.id === "effect-spore" && Math.random() < 0.3) return randomItem(["poison", "paralysis", "sleep"] as StatusCondition[]);
+  return undefined;
 }
 
 function moveStatusEffect(move: BattleMove): { condition: StatusCondition; chance: number } | undefined {
@@ -630,6 +1002,91 @@ function moveStatusEffect(move: BattleMove): { condition: StatusCondition; chanc
   if (move.type === "Poison" && move.category !== "status") return { condition: "poison", chance: 0.25 };
   if (move.type === "Ice" && move.category !== "status") return { condition: "freeze", chance: 0.1 };
   return undefined;
+}
+
+function entryWeather(abilityId: string): { condition: WeatherCondition; label: string } | undefined {
+  if (abilityId === "drizzle") return { condition: "rain", label: "비가 내리기 시작했다." };
+  if (abilityId === "drought") return { condition: "sun", label: "햇살이 강해졌다." };
+  if (abilityId === "sand-stream") return { condition: "sand", label: "모래바람이 불기 시작했다." };
+  if (abilityId === "snow-warning") return { condition: "snow", label: "눈이 내리기 시작했다." };
+  return undefined;
+}
+
+function entryStageBoost(abilityId: string): { stat: BattleStat; change: number } | undefined {
+  if (abilityId === "intrepid-sword") return { stat: "attack", change: 1 };
+  if (abilityId === "dauntless-shield") return { stat: "defense", change: 1 };
+  return undefined;
+}
+
+function preventsIntimidate(ability: BattleAbility | undefined) {
+  return ["inner-focus", "own-tempo", "oblivious", "scrappy", "clear-body", "white-smoke", "full-metal-body", "hyper-cutter"].includes(
+    ability?.id ?? "",
+  );
+}
+
+function ignoresDefensiveAbility(ability: BattleAbility | undefined) {
+  return ability?.id === "mold-breaker" || ability?.id === "teravolt" || ability?.id === "turboblaze";
+}
+
+function weatherLabel(condition: WeatherCondition) {
+  if (condition === "rain") return "비";
+  if (condition === "sun") return "강한 햇살";
+  if (condition === "sand") return "모래바람";
+  return "눈";
+}
+
+function highestBattleStat(mon: Pokemon): BattleStat {
+  const stats: Array<[BattleStat, number]> = [
+    ["attack", mon.attack],
+    ["defense", mon.defense],
+    ["specialAttack", mon.specialAttack],
+    ["specialDefense", mon.specialDefense],
+    ["speed", mon.speed],
+  ];
+  return stats.sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function isContactMove(move: BattleMove) {
+  if (move.category !== "physical") return false;
+  const name = move.name.toLowerCase();
+  return !["beam", "blast", "shot", "rock", "quake", "spike", "bomb"].some((token) => name.includes(token));
+}
+
+function isPunchMove(move: BattleMove) {
+  return move.name.toLowerCase().includes("punch");
+}
+
+function isBiteMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return name.includes("bite") || name.includes("fang") || name.includes("crunch");
+}
+
+function isPulseMove(move: BattleMove) {
+  return move.name.toLowerCase().includes("pulse") || move.name.toLowerCase().includes("aura-sphere");
+}
+
+function isRecoilMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return ["double-edge", "flare-blitz", "brave-bird", "head-smash", "wild-charge", "wood-hammer", "volt-tackle"].some((token) =>
+    name.includes(token),
+  );
+}
+
+function isSlicingMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return ["slash", "cut", "blade", "cutter", "scythe", "sacred-sword"].some((token) => name.includes(token));
+}
+
+function isSoundMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return ["sound", "voice", "song", "boomburst", "hyper-voice", "bug-buzz", "snarl", "uproar", "screech"].some((token) =>
+    name.includes(token),
+  );
+}
+
+function isBallMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return ["ball", "bomb", "blast", "barrage", "bullet", "seed"].some((token) => name.includes(token));
 }
 
 function initialStatusTurns(condition: StatusCondition) {
@@ -670,13 +1127,24 @@ function modifiedStat(
   stages?: Map<string, BattleStages>,
   statuses?: Map<string, BattleStatusState>,
   ability?: BattleAbility,
+  weather?: WeatherState,
 ) {
   const base = mon[stat];
   const stage = stages?.get(mon.name)?.[stat] ?? 0;
   const status = statuses?.get(mon.name)?.condition;
   const paralysisPenalty = stat === "speed" && status === "paralysis" && ability?.id !== "limber" ? 0.55 : 1;
   const marvelScaleBoost = stat === "defense" && Boolean(status) && ability?.id === "marvel-scale" ? 1.35 : 1;
-  return base * stageMultiplier(stage) * paralysisPenalty * marvelScaleBoost;
+  const weatherSpeedBoost =
+    stat === "speed" &&
+    ((ability?.id === "swift-swim" && weather?.condition === "rain") ||
+      (ability?.id === "chlorophyll" && weather?.condition === "sun") ||
+      (ability?.id === "sand-rush" && weather?.condition === "sand") ||
+      (ability?.id === "slush-rush" && weather?.condition === "snow"))
+      ? 1.8
+      : 1;
+  const quickFeetBoost = stat === "speed" && Boolean(status) && ability?.id === "quick-feet" ? 1.5 : 1;
+  const unburdenBoost = stat === "speed" && ability?.id === "unburden" ? 1.25 : 1;
+  return base * stageMultiplier(stage) * paralysisPenalty * marvelScaleBoost * weatherSpeedBoost * quickFeetBoost * unburdenBoost;
 }
 
 function stageMultiplier(stage: number) {
