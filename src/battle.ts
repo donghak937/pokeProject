@@ -1,4 +1,4 @@
-import { teamPower, typeLabels, type Pokemon, type TypeName } from "./model";
+import { teamPower, typeLabels, type BattleMove, type Pokemon, type TypeName } from "./model";
 
 export type WinProjection = {
   playerScore: number;
@@ -11,7 +11,11 @@ export type WinProjection = {
 
 type BattleFeedOptions = {
   opponentName?: string;
+  playerMoves?: MoveSet;
+  enemyMoves?: MoveSet;
 };
+
+export type MoveSet = Record<string, BattleMove[]>;
 
 type PairScore = {
   attacker: Pokemon;
@@ -91,7 +95,8 @@ export function createBattleFeed(
     const loser = chooseExchangeLoser(playerActive, enemyActive, playerBench.length, enemyBench.length, playerWins);
     const winner = loser === "enemy" ? playerActive : enemyActive;
     const downed = loser === "enemy" ? enemyActive : playerActive;
-    logs.push(`${winner.displayName}의 ${bestAttackLabel(winner, downed)} 압박! ${downed.displayName} 다운!`);
+    const winnerMoves = loser === "enemy" ? options.playerMoves : options.enemyMoves;
+    logs.push(formatMoveKnockout(winner, downed, winnerMoves));
 
     if (loser === "enemy") {
       enemyActive = enemyBench.shift();
@@ -103,12 +108,12 @@ export function createBattleFeed(
   }
 
   if (playerWins && playerActive && enemyActive) {
-    logs.push(`${playerActive.displayName}이 마지막까지 버텼다. ${enemyActive.displayName} 다운!`);
+    logs.push(formatMoveKnockout(playerActive, enemyActive, options.playerMoves, true));
     enemyActive = undefined;
   }
 
   if (!playerWins && playerActive && enemyActive) {
-    logs.push(`${enemyActive.displayName}이 마무리했다. ${playerActive.displayName} 다운!`);
+    logs.push(formatMoveKnockout(enemyActive, playerActive, options.enemyMoves, true));
     playerActive = undefined;
   }
 
@@ -234,6 +239,45 @@ function speedTempo(attacker: Pokemon, defender: Pokemon) {
 
 function attackModeLabel(mode: AttackMode) {
   return mode === "physical" ? "물리 우세" : "특수 우세";
+}
+
+function formatMoveKnockout(attacker: Pokemon, defender: Pokemon, moveSet?: MoveSet, finisher = false) {
+  const move = chooseBestMove(attacker, defender, moveSet?.[attacker.name]);
+  if (!move) {
+    return `${attacker.displayName}의 ${bestAttackLabel(attacker, defender)} 압박! ${defender.displayName} 다운!`;
+  }
+
+  const multiplier = bestAttackMultiplier([move.type], defender.types);
+  const effectText = formatEffectText(multiplier);
+  const finisherText = finisher ? "마무리! " : "";
+  return `${attacker.displayName}의 ${move.displayName}! ${effectText}${finisherText}${defender.displayName} 다운!`;
+}
+
+function chooseBestMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[] = []) {
+  const damagingMoves = moves.filter((move) => move.category !== "status" && move.power !== null);
+  const candidates = damagingMoves.length > 0 ? damagingMoves : moves;
+  if (candidates.length === 0) return undefined;
+
+  return maxBy(candidates, (move) => {
+    const multiplier = bestAttackMultiplier([move.type], defender.types);
+    const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+    const accuracy = (move.accuracy ?? 100) / 100;
+    const power = move.power ?? 20;
+    const categoryFit =
+      move.category === "physical"
+        ? attacker.attack - defender.defense * 0.45
+        : move.category === "special"
+          ? attacker.specialAttack - defender.specialDefense * 0.45
+          : 0;
+    return power * multiplier * stab * accuracy + categoryFit;
+  });
+}
+
+function formatEffectText(multiplier: number) {
+  if (multiplier === 0) return "효과가 없었다... 하지만 빈틈을 만들었다. ";
+  if (multiplier >= 2) return "효과가 굉장했다! ";
+  if (multiplier < 1) return "효과는 별로였다. ";
+  return "";
 }
 
 function bestAttackLabel(attacker: Pokemon, defender: Pokemon) {

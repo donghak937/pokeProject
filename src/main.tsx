@@ -2,7 +2,7 @@
 import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
-import { calculateWinProjection, createBattleFeed } from "./battle";
+import { calculateWinProjection, createBattleFeed, type MoveSet } from "./battle";
 import { championLeagues, type LeagueOpponent } from "./leagues";
 import {
   buildChoices,
@@ -100,13 +100,13 @@ function App() {
   }
 
   function simulateAgain() {
-    setMatches(simulateRun(team, mode));
+    setMatches(simulateRun(team, mode, teamMoves));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
   }
 
   function startBattle() {
-    setMatches(simulateRun(team, mode));
+    setMatches(simulateRun(team, mode, teamMoves));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
   }
@@ -612,11 +612,11 @@ function rollRule(): DraftRule {
   return { gen, type };
 }
 
-function simulateRun(team: Pokemon[], mode: GameMode): MatchResult[] {
-  return mode === "random" ? simulateTournament(team) : simulateChampions(team);
+function simulateRun(team: Pokemon[], mode: GameMode, playerMoves: MoveSet): MatchResult[] {
+  return mode === "random" ? simulateTournament(team, playerMoves) : simulateChampions(team, playerMoves);
 }
 
-function simulateTournament(team: Pokemon[]): MatchResult[] {
+function simulateTournament(team: Pokemon[], playerMoves: MoveSet): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
 
@@ -630,7 +630,10 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
     const projection = calculateWinProjection(team, enemy);
     const roll = Math.random();
     const win = roll <= projection.winRate;
-    const battleLogs = createBattleFeed(team, enemy, win);
+    const battleLogs = createBattleFeed(team, enemy, win, {
+      playerMoves,
+      enemyMoves: buildMoveSet(enemy),
+    });
     alive = win;
     matches.push({
       round,
@@ -649,7 +652,7 @@ function simulateTournament(team: Pokemon[]): MatchResult[] {
   return matches;
 }
 
-function simulateChampions(team: Pokemon[]): MatchResult[] {
+function simulateChampions(team: Pokemon[], playerMoves: MoveSet): MatchResult[] {
   const matches: MatchResult[] = [];
   let alive = true;
   const league = randomItem(championLeagues);
@@ -661,10 +664,17 @@ function simulateChampions(team: Pokemon[]): MatchResult[] {
       return;
     }
 
-    const match = simulateOpponent(team, opponent.team, `${opponent.title} ${opponent.name}`, opponent, {
-      leagueRegion: league.region,
-      revealRegion: isFinalBattle,
-    });
+    const match = simulateOpponent(
+      team,
+      opponent.team,
+      `${opponent.title} ${opponent.name}`,
+      opponent,
+      {
+        leagueRegion: league.region,
+        revealRegion: isFinalBattle,
+      },
+      playerMoves,
+    );
     alive = !match.skipped && match.win;
     matches.push(match);
   });
@@ -678,12 +688,17 @@ function simulateOpponent(
   round: string,
   opponent?: LeagueOpponent,
   options: { leagueRegion?: string; revealRegion?: boolean } = {},
+  playerMoves: MoveSet = {},
 ): MatchResult {
   const projection = calculateWinProjection(team, enemy);
   const roll = Math.random();
   const win = roll <= projection.winRate;
   const opponentName = opponent?.name ?? "상대";
-  const battleLogs = createBattleFeed(team, enemy, win, { opponentName });
+  const battleLogs = createBattleFeed(team, enemy, win, {
+    opponentName,
+    playerMoves,
+    enemyMoves: buildMoveSet(enemy),
+  });
   const logs = opponent
     ? [
         options.revealRegion && options.leagueRegion
@@ -730,6 +745,10 @@ function rollMoves(mon: Pokemon) {
   ]);
 
   return selected.slice(0, 4);
+}
+
+function buildMoveSet(team: Pokemon[]): MoveSet {
+  return Object.fromEntries(team.map((mon) => [mon.name, rollMoves(mon)]));
 }
 
 function uniqueMoves(moves: BattleMove[]) {
