@@ -37,7 +37,7 @@ button {
 .app {
   width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 28px;
+  padding: 20px 24px;
 }
 
 .topbar {
@@ -45,7 +45,7 @@ button {
   align-items: end;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 .mode-switch {
@@ -92,7 +92,7 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: clamp(2rem, 5vw, 4.8rem);
+  font-size: clamp(2rem, 4.2vw, 4rem);
   line-height: 0.92;
 }
 
@@ -163,8 +163,8 @@ h2 {
 
 .team-panel {
   position: sticky;
-  top: 20px;
-  padding: 18px;
+  top: 16px;
+  padding: 16px;
 }
 
 .panel-heading,
@@ -375,8 +375,8 @@ h2 {
 }
 
 .tournament {
-  margin-top: 18px;
-  padding: 22px;
+  min-height: 580px;
+  padding: 18px;
 }
 
 .asset-credit {
@@ -397,11 +397,11 @@ h2 {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
 .battle-progress div {
-  min-height: 54px;
+  min-height: 46px;
   display: grid;
   grid-template-columns: 28px 1fr;
   gap: 8px;
@@ -424,8 +424,8 @@ h2 {
 }
 
 .battle-progress span {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -507,8 +507,8 @@ h2 {
 }
 
 .active-match {
-  margin-top: 14px;
-  min-height: 420px;
+  margin-top: 12px;
+  min-height: 0;
 }
 
 .match-top {
@@ -520,7 +520,7 @@ h2 {
 
 .match h3 {
   margin: 0 0 10px;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
 }
 
 .match .win {
@@ -537,13 +537,16 @@ h2 {
   display: grid;
   grid-template-columns: minmax(220px, 0.85fr) minmax(320px, 1.3fr) minmax(220px, 0.85fr);
   gap: 12px;
-  margin-top: 12px;
+  height: min(48vh, 440px);
+  min-height: 330px;
+  margin-top: 10px;
   align-items: stretch;
 }
 
 .battle-roster,
 .battle-console {
-  min-height: 420px;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(170, 181, 196, 0.18);
   border-radius: 8px;
   background: rgba(16, 21, 28, 0.66);
@@ -577,11 +580,13 @@ h2 {
 .roster-list {
   display: grid;
   gap: 8px;
+  max-height: calc(100% - 34px);
+  overflow: auto;
 }
 
 .roster-mon {
   position: relative;
-  min-height: 66px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: 44px 1fr auto;
   gap: 10px;
@@ -676,8 +681,10 @@ h2 {
   display: grid;
   gap: 8px;
   flex: 1;
+  height: 100%;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   border-radius: 6px;
   background: rgba(6, 8, 12, 0.48);

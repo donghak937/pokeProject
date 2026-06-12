@@ -153,61 +153,61 @@ function App() {
           </div>
         </aside>
 
-        <section className="draft-panel">
-          <div className="draft-heading">
-            <div>
-              <p className="eyebrow">랜덤 조건</p>
-              <h2>{isDrafting ? `${pickNumber}번째 파티원을 고르세요` : "파티 선택 완료"}</h2>
+        {matches.length === 0 ? (
+          <section className="draft-panel">
+            <div className="draft-heading">
+              <div>
+                <p className="eyebrow">랜덤 조건</p>
+                <h2>{isDrafting ? `${pickNumber}번째 파티원을 고르세요` : "파티 선택 완료"}</h2>
+              </div>
+              <div className="rule-card">
+                <span>{rule.gen}세대 {generationLabels[rule.gen]}</span>
+                <strong>{typeLabels[rule.type]} 타입</strong>
+              </div>
             </div>
-            <div className="rule-card">
-              <span>{rule.gen}세대 {generationLabels[rule.gen]}</span>
-              <strong>{typeLabels[rule.type]} 타입</strong>
+            <div className="choices" aria-live="polite">
+              {isDrafting
+                ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} onPick={pickPokemon} />)
+                : <LockedParty onSimulate={simulateAgain} />}
             </div>
-          </div>
-          <div className="choices" aria-live="polite">
-            {isDrafting
-              ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} onPick={pickPokemon} />)
-              : <LockedParty onSimulate={simulateAgain} />}
-          </div>
-        </section>
+          </section>
+        ) : (
+          <section className="tournament" aria-label="도전 결과">
+            <div className="tournament-heading">
+              <div>
+                <p className="eyebrow">{mode === "random" ? "챔피언 도전" : "포챔스 도전"}</p>
+                <h2>{runEnded ? (champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락") : "도전 진행 중"}</h2>
+              </div>
+              <button className="primary-action" type="button" onClick={simulateAgain}>
+                <Swords size={18} />
+                다시 시뮬
+              </button>
+            </div>
+            <BattleProgress matches={matches} activeIndex={activeMatchIndex} />
+            {activeMatch && (
+              <MatchCard
+                match={activeMatch}
+                team={team}
+                visibleLogs={activeLogs}
+                isLogDone={isLogDone}
+                hasNext={activeMatchIndex < matches.length - 1}
+                onNext={goNextBattle}
+              />
+            )}
+            {runEnded && (
+              <section className="reveal-panel" aria-label="능력치 공개">
+                <div className="reveal-heading">
+                  <p className="eyebrow">능력치 공개</p>
+                  <h2>내 선택 결과</h2>
+                </div>
+                <div className="reveal-grid">
+                  {team.map((mon) => <RevealCard key={mon.name} pokemon={mon} />)}
+                </div>
+              </section>
+            )}
+          </section>
+        )}
       </section>
-
-      {matches.length > 0 && (
-        <section className="tournament" aria-label="토너먼트 결과">
-          <div className="tournament-heading">
-            <div>
-              <p className="eyebrow">{mode === "random" ? "챔피언 도전" : "포챔스 도전"}</p>
-              <h2>{runEnded ? (champion ? (mode === "random" ? "우승 성공" : "포챔스 제패") : "탈락") : "도전 진행 중"}</h2>
-            </div>
-            <button className="primary-action" type="button" onClick={simulateAgain}>
-              <Swords size={18} />
-              다시 시뮬
-            </button>
-          </div>
-          <BattleProgress matches={matches} activeIndex={activeMatchIndex} />
-          {activeMatch && (
-            <MatchCard
-              match={activeMatch}
-              team={team}
-              visibleLogs={activeLogs}
-              isLogDone={isLogDone}
-              hasNext={activeMatchIndex < matches.length - 1}
-              onNext={goNextBattle}
-            />
-          )}
-          {runEnded && (
-            <section className="reveal-panel" aria-label="능력치 공개">
-              <div className="reveal-heading">
-                <p className="eyebrow">능력치 공개</p>
-                <h2>내 선택 결과</h2>
-              </div>
-              <div className="reveal-grid">
-                {team.map((mon) => <RevealCard key={mon.name} pokemon={mon} />)}
-              </div>
-            </section>
-          )}
-        </section>
-      )}
       <footer className="asset-credit">
         포켓몬 스프라이트 출처: PokeRogue assets. 비상업 친구용 프로토타입.
       </footer>
