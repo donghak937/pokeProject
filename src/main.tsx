@@ -14,6 +14,7 @@ import {
   typeGradient,
   typeLabels,
   type DraftRule,
+  type BattleMove,
   type MatchResult,
   type Pokemon,
 } from "./model";
@@ -29,6 +30,8 @@ function App() {
   const [matches, setMatches] = React.useState<MatchResult[]>([]);
   const [activeMatchIndex, setActiveMatchIndex] = React.useState(0);
   const [visibleLogCount, setVisibleLogCount] = React.useState(1);
+  const [teamMoves, setTeamMoves] = React.useState<Record<string, BattleMove[]>>({});
+  const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
 
   const pickNumber = team.length + 1;
   const exactMatches = choices.filter((mon) => mon.gen === rule.gen && mon.types.includes(rule.type)).length;
@@ -70,6 +73,8 @@ function App() {
     setMatches([]);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
+    setTeamMoves({});
+    setSelectedMovePokemon(null);
     setRule(nextRule);
     setChoices(buildChoices(nextRule, []));
   }
@@ -77,9 +82,13 @@ function App() {
   function pickPokemon(mon: Pokemon) {
     const nextTeam = [...team, mon];
     setTeam(nextTeam);
+    setTeamMoves((current) => ({
+      ...current,
+      [mon.name]: current[mon.name] ?? rollMoves(mon),
+    }));
+    setSelectedMovePokemon(mon.name);
 
     if (nextTeam.length >= 6) {
-      setMatches(simulateRun(nextTeam, mode));
       setActiveMatchIndex(0);
       setVisibleLogCount(1);
       return;
@@ -96,6 +105,12 @@ function App() {
     setVisibleLogCount(1);
   }
 
+  function startBattle() {
+    setMatches(simulateRun(team, mode));
+    setActiveMatchIndex(0);
+    setVisibleLogCount(1);
+  }
+
   function changeMode(nextMode: GameMode) {
     setMode(nextMode);
     const nextRule = rollRule();
@@ -103,6 +118,8 @@ function App() {
     setMatches([]);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
+    setTeamMoves({});
+    setSelectedMovePokemon(null);
     setRule(nextRule);
     setChoices(buildChoices(nextRule, []));
   }
@@ -170,7 +187,15 @@ function App() {
             <div className="choices" aria-live="polite">
               {isDrafting
                 ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} onPick={pickPokemon} />)
-                : <LockedParty onSimulate={simulateAgain} />}
+                : (
+                    <LockedParty
+                      team={team}
+                      teamMoves={teamMoves}
+                      selectedPokemonName={selectedMovePokemon ?? team[0]?.name ?? null}
+                      onSelectPokemon={setSelectedMovePokemon}
+                      onStartBattle={startBattle}
+                    />
+                  )}
             </div>
           </section>
         ) : (
@@ -322,15 +347,79 @@ function RevealCard({ pokemon: mon }: { pokemon: Pokemon }) {
   );
 }
 
-function LockedParty({ onSimulate }: { onSimulate: () => void }) {
+function LockedParty({
+  team,
+  teamMoves,
+  selectedPokemonName,
+  onSelectPokemon,
+  onStartBattle,
+}: {
+  team: Pokemon[];
+  teamMoves: Record<string, BattleMove[]>;
+  selectedPokemonName: string | null;
+  onSelectPokemon: (name: string) => void;
+  onStartBattle: () => void;
+}) {
+  const selectedPokemon = team.find((mon) => mon.name === selectedPokemonName) ?? team[0];
+  const selectedMoves = selectedPokemon ? teamMoves[selectedPokemon.name] ?? [] : [];
+
   return (
     <article className="locked-party">
-      <Swords size={48} />
-      <h3>드래프트 완료</h3>
-      <p>같은 여섯 마리로 다시 시뮬레이션하거나 새 런을 시작할 수 있습니다.</p>
-      <button className="pick-button" type="button" onClick={onSimulate}>
-        시뮬레이션
-      </button>
+      <div className="locked-heading">
+        <div>
+          <p className="eyebrow">전투 준비</p>
+          <h3>기술 확인</h3>
+        </div>
+        <button className="pick-button start-battle-button" type="button" onClick={onStartBattle}>
+          <Swords size={18} />
+          전투 시작
+        </button>
+      </div>
+      <div className="move-preview">
+        <div className="move-party-list" aria-label="기술 확인할 포켓몬">
+          {team.map((mon) => (
+            <button
+              className={selectedPokemon?.name === mon.name ? "move-party-button active" : "move-party-button"}
+              key={mon.name}
+              type="button"
+              onClick={() => onSelectPokemon(mon.name)}
+            >
+              <PokemonPortrait pokemon={mon} />
+              <span>{mon.displayName}</span>
+            </button>
+          ))}
+        </div>
+        <div className="move-card">
+          {selectedPokemon && (
+            <>
+              <div className="move-card-heading">
+                <PokemonPortrait pokemon={selectedPokemon} />
+                <div>
+                  <h4>{selectedPokemon.displayName}</h4>
+                  <p>{selectedPokemon.types.map((type) => typeLabels[type]).join(" / ")}</p>
+                </div>
+              </div>
+              <div className="move-list">
+                {selectedMoves.map((move) => <MovePill move={move} key={move.name} />)}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MovePill({ move }: { move: BattleMove }) {
+  return (
+    <article className="move-pill">
+      <div>
+        <strong>{move.displayName}</strong>
+        <span style={{ background: typeColors[move.type] }}>{typeLabels[move.type]}</span>
+      </div>
+      <p>
+        {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"} · 명중 {move.accuracy ?? "-"} · PP {move.pp ?? "-"}
+      </p>
     </article>
   );
 }
@@ -623,6 +712,39 @@ function simulateOpponent(
 
 function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function shuffle<T>(items: T[]) {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+function rollMoves(mon: Pokemon) {
+  const damagingMoves = shuffle(mon.movePool.filter((move) => move.category !== "status" && move.power !== null));
+  const statusMoves = shuffle(mon.movePool.filter((move) => move.category === "status" || move.power === null));
+  const sameTypeMoves = damagingMoves.filter((move) => mon.types.includes(move.type));
+  const selected = uniqueMoves([
+    ...sameTypeMoves.slice(0, 2),
+    ...damagingMoves.slice(0, 4),
+    ...statusMoves.slice(0, 2),
+    ...shuffle(mon.movePool),
+  ]);
+
+  return selected.slice(0, 4);
+}
+
+function uniqueMoves(moves: BattleMove[]) {
+  const seen = new Set<string>();
+  return moves.filter((move) => {
+    if (seen.has(move.name)) return false;
+    seen.add(move.name);
+    return true;
+  });
+}
+
+function moveCategoryLabel(category: BattleMove["category"]) {
+  if (category === "physical") return "물리";
+  if (category === "special") return "특수";
+  return "변화";
 }
 
 function withBattleParticle(label: string) {

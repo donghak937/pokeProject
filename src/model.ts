@@ -23,6 +23,17 @@ export const typeColors = {
 
 export type TypeName = keyof typeof typeColors;
 export type Generation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type MoveCategory = "physical" | "special" | "status";
+
+export type BattleMove = {
+  name: string;
+  displayName: string;
+  type: TypeName;
+  category: MoveCategory;
+  power: number | null;
+  accuracy: number | null;
+  pp: number | null;
+};
 
 export type Pokemon = {
   name: string;
@@ -39,6 +50,7 @@ export type Pokemon = {
   speed: number;
   mark: string;
   score: number;
+  movePool: BattleMove[];
   spriteUrl?: string;
 };
 
