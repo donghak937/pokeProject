@@ -34,6 +34,9 @@ export type Pokemon = {
   hp: number;
   attack: number;
   defense: number;
+  specialAttack: number;
+  specialDefense: number;
+  speed: number;
   mark: string;
   score: number;
   spriteUrl?: string;
@@ -139,8 +142,16 @@ export function typeGradient(types: TypeName[]) {
   return `radial-gradient(circle, rgba(255,255,255,.24), transparent 58%), linear-gradient(135deg, ${first}, ${second})`;
 }
 
-function monScore(mon: Pick<Pokemon, "total" | "attack" | "defense" | "hp">) {
-  return mon.total + mon.attack * 0.38 + mon.defense * 0.22 + mon.hp * 0.18;
+function monScore(mon: Pick<Pokemon, "total" | "attack" | "defense" | "specialAttack" | "specialDefense" | "speed" | "hp">) {
+  return (
+    mon.total +
+    Math.max(mon.attack, mon.specialAttack) * 0.3 +
+    Math.min(mon.attack, mon.specialAttack) * 0.12 +
+    Math.max(mon.defense, mon.specialDefense) * 0.2 +
+    Math.min(mon.defense, mon.specialDefense) * 0.1 +
+    mon.speed * 0.22 +
+    mon.hp * 0.16
+  );
 }
 
 function synergyBonus(team: Pokemon[]) {

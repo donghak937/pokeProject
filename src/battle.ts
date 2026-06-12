@@ -19,7 +19,10 @@ type PairScore = {
   score: number;
   attackMultiplier: number;
   defenseRisk: number;
+  attackMode: AttackMode;
 };
+
+type AttackMode = "physical" | "special";
 
 export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinProjection {
   const playerPairs = scorePairs(team, enemy);
@@ -42,8 +45,9 @@ export function calculateWinProjection(team: Pokemon[], enemy: Pokemon[]): WinPr
     logs: [
       `승률 계산: 내 파티 ${Math.round(playerTeamScore)}점 vs 상대 ${Math.round(enemyTeamScore)}점`,
       `예상 승률 ${(winRate * 100).toFixed(1)}%`,
-      `주요 돌파구: ${bestPair.attacker.displayName} -> ${bestPair.defender.displayName} 상성 ${formatMultiplier(bestPair.attackMultiplier)}`,
-      `가장 위험한 상대: ${worstPair.attacker.displayName} -> ${worstPair.defender.displayName} 상성 ${formatMultiplier(worstPair.attackMultiplier)}`,
+      `주요 돌파구: ${bestPair.attacker.displayName} -> ${bestPair.defender.displayName} ${attackModeLabel(bestPair.attackMode)} / 상성 ${formatMultiplier(bestPair.attackMultiplier)}`,
+      `가장 위험한 상대: ${worstPair.attacker.displayName} -> ${worstPair.defender.displayName} ${attackModeLabel(worstPair.attackMode)} / 상성 ${formatMultiplier(worstPair.attackMultiplier)}`,
+      `계산 축: HP, 공격, 방어, 특공, 특방, 스피드, 타입 상성, 타입 다양성`,
       `타입 폭: 내 파티 ${typeSpread}종 / 상대 ${enemyTypeSpread}종`,
     ],
   };
@@ -118,9 +122,12 @@ function scorePairs(attackers: Pokemon[], defenders: Pokemon[]) {
     defenders.map((defender) => {
       const attackMultiplier = bestAttackMultiplier(attacker.types, defender.types);
       const defenseRisk = bestAttackMultiplier(defender.types, attacker.types);
-      const power = pokemonPower(attacker);
-      const score = power * matchupBoost(attackMultiplier) - pokemonPower(defender) * matchupRisk(defenseRisk) * 0.42;
-      return { attacker, defender, score, attackMultiplier, defenseRisk };
+      const attackMode = bestAttackMode(attacker, defender);
+      const score =
+        offensivePower(attacker, defender, attackMode) * matchupBoost(attackMultiplier) +
+        speedTempo(attacker, defender) -
+        defensivePressure(defender, attacker) * matchupRisk(defenseRisk) * 0.42;
+      return { attacker, defender, score, attackMultiplier, defenseRisk, attackMode };
     }),
   );
 }
@@ -175,11 +182,58 @@ function oppositeSide(side: "player" | "enemy") {
 function duelScore(attacker: Pokemon, defender: Pokemon) {
   const attackMultiplier = bestAttackMultiplier(attacker.types, defender.types);
   const defenseRisk = bestAttackMultiplier(defender.types, attacker.types);
-  return pokemonPower(attacker) * matchupBoost(attackMultiplier) - pokemonPower(defender) * matchupRisk(defenseRisk) * 0.36;
+  const attackMode = bestAttackMode(attacker, defender);
+  return (
+    offensivePower(attacker, defender, attackMode) * matchupBoost(attackMultiplier) +
+    speedTempo(attacker, defender) -
+    defensivePressure(defender, attacker) * matchupRisk(defenseRisk) * 0.36
+  );
 }
 
 function pokemonPower(mon: Pokemon) {
-  return mon.total + mon.attack * 0.35 + mon.defense * 0.25 + mon.hp * 0.2;
+  return (
+    mon.total +
+    Math.max(mon.attack, mon.specialAttack) * 0.32 +
+    Math.min(mon.attack, mon.specialAttack) * 0.12 +
+    Math.max(mon.defense, mon.specialDefense) * 0.22 +
+    Math.min(mon.defense, mon.specialDefense) * 0.1 +
+    mon.speed * 0.24 +
+    mon.hp * 0.18
+  );
+}
+
+function offensivePower(attacker: Pokemon, defender: Pokemon, mode: AttackMode) {
+  const attackStat = mode === "physical" ? attacker.attack : attacker.specialAttack;
+  const defenseStat = mode === "physical" ? defender.defense : defender.specialDefense;
+  const bulkTax = defender.hp * 0.22 + defenseStat * 0.42;
+  return pokemonPower(attacker) + attackStat * 1.35 - bulkTax;
+}
+
+function defensivePressure(defender: Pokemon, attacker: Pokemon) {
+  const incomingMode = bestAttackMode(attacker, defender);
+  const relevantDefense = incomingMode === "physical" ? defender.defense : defender.specialDefense;
+  return pokemonPower(defender) + defender.hp * 0.34 + relevantDefense * 0.58;
+}
+
+function bestAttackMode(attacker: Pokemon, defender: Pokemon): AttackMode {
+  const physical = attacker.attack * 1.25 - defender.defense * 0.72;
+  const special = attacker.specialAttack * 1.25 - defender.specialDefense * 0.72;
+  return physical >= special ? "physical" : "special";
+}
+
+function speedTempo(attacker: Pokemon, defender: Pokemon) {
+  const speedDiff = attacker.speed - defender.speed;
+  if (speedDiff >= 50) return 42;
+  if (speedDiff >= 25) return 26;
+  if (speedDiff >= 10) return 12;
+  if (speedDiff <= -50) return -36;
+  if (speedDiff <= -25) return -22;
+  if (speedDiff <= -10) return -10;
+  return 0;
+}
+
+function attackModeLabel(mode: AttackMode) {
+  return mode === "physical" ? "물리 우세" : "특수 우세";
 }
 
 function bestAttackLabel(attacker: Pokemon, defender: Pokemon) {

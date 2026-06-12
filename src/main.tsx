@@ -312,6 +312,9 @@ function RevealCard({ pokemon: mon }: { pokemon: Pokemon }) {
           <span>체력 {mon.hp}</span>
           <span>공격 {mon.attack}</span>
           <span>방어 {mon.defense}</span>
+          <span>특공 {mon.specialAttack}</span>
+          <span>특방 {mon.specialDefense}</span>
+          <span>스피드 {mon.speed}</span>
           <span>시뮬 점수 {Math.round(mon.score)}</span>
         </div>
       </div>
