@@ -35,6 +35,7 @@ function App() {
   const [teamMoves, setTeamMoves] = React.useState<Record<string, BattleMove[]>>({});
   const [choiceMoves, setChoiceMoves] = React.useState<Record<string, BattleMove[]>>({});
   const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
+  const [inspectingChoice, setInspectingChoice] = React.useState<Pokemon | null>(null);
   const [logSpeed, setLogSpeed] = React.useState<LogSpeed>(1);
   const [sameGenRerolls, setSameGenRerolls] = React.useState(2);
   const [wildRerolls, setWildRerolls] = React.useState(2);
@@ -85,6 +86,7 @@ function App() {
     setTeamMoves({});
     setChoiceMoves(buildMoveSet(nextChoices));
     setSelectedMovePokemon(null);
+    setInspectingChoice(null);
     setSameGenRerolls(2);
     setWildRerolls(2);
     setRule(nextRule);
@@ -94,6 +96,7 @@ function App() {
   function pickPokemon(mon: Pokemon) {
     const nextTeam = [...team, mon];
     setTeam(nextTeam);
+    setInspectingChoice(null);
     setTeamMoves((current) => ({
       ...current,
       [mon.name]: current[mon.name] ?? choiceMoves[mon.name] ?? rollMoves(mon),
@@ -111,8 +114,6 @@ function App() {
     setRule(nextRule);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
-    setSameGenRerolls(2);
-    setWildRerolls(2);
   }
 
   function simulateAgain() {
@@ -138,6 +139,7 @@ function App() {
     setTeamMoves({});
     setChoiceMoves(buildMoveSet(nextChoices));
     setSelectedMovePokemon(null);
+    setInspectingChoice(null);
     setSameGenRerolls(2);
     setWildRerolls(2);
     setRule(nextRule);
@@ -152,6 +154,7 @@ function App() {
   function rerollSameGeneration() {
     if (sameGenRerolls <= 0 || !isDrafting) return;
     const nextChoices = buildChoices(rule, team);
+    setInspectingChoice(null);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
     setSameGenRerolls((count) => count - 1);
@@ -161,6 +164,7 @@ function App() {
     if (wildRerolls <= 0 || !isDrafting) return;
     const nextRule = rollRule();
     const nextChoices = buildChoices(nextRule, team);
+    setInspectingChoice(null);
     setRule(nextRule);
     setChoices(nextChoices);
     setChoiceMoves(buildMoveSet(nextChoices));
@@ -234,7 +238,7 @@ function App() {
             )}
             <div className="choices" aria-live="polite">
               {isDrafting
-                ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} moves={choiceMoves[mon.name] ?? []} onPick={pickPokemon} />)
+                ? choices.map((mon) => <ChoiceCard key={mon.name} pokemon={mon} onInspect={setInspectingChoice} />)
                 : (
                     <LockedParty
                       team={team}
@@ -245,6 +249,14 @@ function App() {
                     />
                   )}
             </div>
+            {inspectingChoice && (
+              <ChoiceMoveModal
+                pokemon={inspectingChoice}
+                moves={choiceMoves[inspectingChoice.name] ?? []}
+                onClose={() => setInspectingChoice(null)}
+                onPick={() => pickPokemon(inspectingChoice)}
+              />
+            )}
           </section>
         ) : (
           <section className="tournament" aria-label="도전 결과">
@@ -274,6 +286,9 @@ function App() {
                 isLogDone={isLogDone}
                 hasNext={activeMatchIndex < matches.length - 1}
                 onNext={goNextBattle}
+                onSkipResult={() => {
+                  if (!activeMatch.skipped) setVisibleLogCount(activeMatch.logs.length);
+                }}
               />
             )}
             {runEnded && (
@@ -308,35 +323,67 @@ function Status({ label, value }: { label: string; value: string }) {
 
 function ChoiceCard({
   pokemon: mon,
-  moves,
-  onPick,
+  onInspect,
 }: {
   pokemon: Pokemon;
-  moves: BattleMove[];
-  onPick: (pokemon: Pokemon) => void;
+  onInspect: (pokemon: Pokemon) => void;
 }) {
   return (
     <article className="choice" style={{ "--accent": typeColors[mon.types[0]] } as React.CSSProperties}>
-      <div>
+      <button className="choice-open" type="button" onClick={() => onInspect(mon)}>
         <PokemonPortrait pokemon={mon} large />
         <h3>{mon.displayName}</h3>
         <div className="meta">{mon.gen}세대 {generationLabels[mon.gen]}</div>
         <div className="type-row">{mon.types.map(typeChip)}</div>
-        <div className="choice-moves">
-          {moves.map((move) => (
-            <div className="choice-move" key={move.name}>
-              <span style={{ background: typeColors[move.type] }}>{typeLabels[move.type]}</span>
-              <strong>{move.displayName}</strong>
-              <em>{moveCategoryLabel(move.category)} {move.power ? `· ${move.power}` : ""}</em>
-            </div>
-          ))}
-        </div>
         <div className="hidden-note">능력치는 경기 후 공개</div>
-      </div>
-      <button className="pick-button" type="button" onClick={() => onPick(mon)}>
-        선택
+      </button>
+      <button className="pick-button" type="button" onClick={() => onInspect(mon)}>
+        기술 확인
       </button>
     </article>
+  );
+}
+
+function ChoiceMoveModal({
+  pokemon: mon,
+  moves,
+  onClose,
+  onPick,
+}: {
+  pokemon: Pokemon;
+  moves: BattleMove[];
+  onClose: () => void;
+  onPick: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <article className="move-modal" role="dialog" aria-modal="true" aria-labelledby="choice-move-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-heading">
+          <div className="move-card-heading">
+            <PokemonPortrait pokemon={mon} />
+            <div>
+              <p className="eyebrow">{mon.gen}세대 {generationLabels[mon.gen]}</p>
+              <h3 id="choice-move-title">{mon.displayName}</h3>
+              <p>{mon.types.map((type) => typeLabels[type]).join(" / ")}</p>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">
+            닫기
+          </button>
+        </div>
+        <div className="move-list modal-move-list">
+          {moves.map((move) => <MovePill move={move} key={move.name} />)}
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-action" type="button" onClick={onClose}>
+            돌아가기
+          </button>
+          <button className="pick-button" type="button" onClick={onPick}>
+            이 포켓몬 선택
+          </button>
+        </div>
+      </article>
+    </div>
   );
 }
 
@@ -517,6 +564,7 @@ function MatchCard({
   isLogDone,
   hasNext,
   onNext,
+  onSkipResult,
 }: {
   match: MatchResult;
   team: Pokemon[];
@@ -524,6 +572,7 @@ function MatchCard({
   isLogDone: boolean;
   hasNext: boolean;
   onNext: () => void;
+  onSkipResult: () => void;
 }) {
   const logRef = React.useRef<HTMLDivElement>(null);
 
@@ -583,6 +632,11 @@ function MatchCard({
           <p>예상 승률 {(match.winRate * 100).toFixed(1)}% · 판정 굴림 {(match.roll * 100).toFixed(1)}%</p>
           <p>MVP 후보: {match.mvp.displayName} · 주의 대상: {match.risk.displayName}</p>
         </div>
+      )}
+      {!isLogDone && (
+        <button className="next-battle" type="button" onClick={onSkipResult}>
+          결과 스킵
+        </button>
       )}
       {isLogDone && match.win && hasNext && (
         <button className="next-battle" type="button" onClick={onNext}>
