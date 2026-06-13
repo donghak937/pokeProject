@@ -19,6 +19,12 @@ type BattleFeedOptions = {
 
 export type MoveSet = Record<string, BattleMove[]>;
 export type AbilitySet = Record<string, BattleAbility>;
+export type BattleFeedResult = {
+  logs: string[];
+  playerWon: boolean;
+  playerSurvivors: number;
+  enemySurvivors: number;
+};
 
 type PairScore = {
   attacker: Pokemon;
@@ -76,7 +82,7 @@ export function createBattleFeed(
   enemy: Pokemon[],
   playerWins: boolean,
   options: BattleFeedOptions = {},
-) {
+): BattleFeedResult {
   const opponentName = options.opponentName ?? "상대";
   const logs: string[] = [];
   let playerActive: Pokemon | undefined = team[0];
@@ -302,7 +308,12 @@ export function createBattleFeed(
     }
   }
 
-  if (playerWins && playerActive && enemyActive) {
+  let playerSurvivors = remainingCount(playerActive, playerBench, hp);
+  let enemySurvivors = remainingCount(enemyActive, enemyBench, hp);
+  let resolvedPlayerWins =
+    enemySurvivors === 0 && playerSurvivors > 0 ? true : playerSurvivors === 0 && enemySurvivors > 0 ? false : playerWins;
+
+  if (resolvedPlayerWins && playerActive && enemyActive) {
     const result = calculateMoveDamage(
       playerActive,
       enemyActive,
@@ -317,10 +328,11 @@ export function createBattleFeed(
     );
     logs.push(formatMoveDamage(playerActive, enemyActive, result, 0));
     logs.push(`${enemyActive.displayName} 다운!`);
+    hp.set(enemyActive.name, 0);
     enemyActive = undefined;
   }
 
-  if (!playerWins && playerActive && enemyActive) {
+  if (!resolvedPlayerWins && playerActive && enemyActive) {
     const result = calculateMoveDamage(
       enemyActive,
       playerActive,
@@ -335,22 +347,30 @@ export function createBattleFeed(
     );
     logs.push(formatMoveDamage(enemyActive, playerActive, result, 0));
     logs.push(`${playerActive.displayName} 다운!`);
+    hp.set(playerActive.name, 0);
     playerActive = undefined;
   }
 
-  while (playerWins && enemyBench.length > 0) {
+  while (resolvedPlayerWins && enemyBench.length > 0) {
     const downed = enemyBench.shift();
     if (downed) logs.push(`${opponentName}, ${downed.displayName} 다운!`);
   }
 
-  while (!playerWins && playerBench.length > 0) {
+  while (!resolvedPlayerWins && playerBench.length > 0) {
     const downed = playerBench.shift();
     if (downed) logs.push(`내 파티, ${downed.displayName} 다운!`);
   }
 
-  const survivors = playerWins ? (playerActive ? 1 : 0) + playerBench.length : (enemyActive ? 1 : 0) + enemyBench.length;
-  logs.push(playerWins ? `승리! 남은 포켓몬 ${survivors}마리.` : `패배... ${opponentName} 남은 포켓몬 ${survivors}마리.`);
-  return logs;
+  playerSurvivors = remainingCount(playerActive, playerBench, hp);
+  enemySurvivors = remainingCount(enemyActive, enemyBench, hp);
+  resolvedPlayerWins = enemySurvivors === 0 && playerSurvivors > 0 ? true : playerSurvivors === 0 && enemySurvivors > 0 ? false : resolvedPlayerWins;
+  const resolvedSurvivors = resolvedPlayerWins ? playerSurvivors : enemySurvivors;
+  logs.push(resolvedPlayerWins ? `승리! 남은 포켓몬 ${resolvedSurvivors}마리.` : `패배... ${opponentName} 남은 포켓몬 ${resolvedSurvivors}마리.`);
+  return { logs, playerWon: resolvedPlayerWins, playerSurvivors, enemySurvivors };
+}
+
+function remainingCount(active: Pokemon | undefined, bench: Pokemon[], hp: Map<string, number>) {
+  return (active && (hp.get(active.name) ?? 0) > 0 ? 1 : 0) + bench.filter((mon) => (hp.get(mon.name) ?? 0) > 0).length;
 }
 
 function scorePairs(attackers: Pokemon[], defenders: Pokemon[]) {

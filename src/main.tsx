@@ -1070,13 +1070,13 @@ function simulateTournament(team: Pokemon[], playerMoves: MoveSet, playerAbiliti
     const projection = calculateWinProjection(team, enemy);
     const roll = Math.random();
     const win = roll <= projection.winRate;
-    const battleLogs = createBattleFeed(team, enemy, win, {
+    const battleFeed = createBattleFeed(team, enemy, win, {
       playerMoves,
       playerAbilities,
       enemyMoves: buildMoveSet(enemy),
       enemyAbilities: buildAbilitySet(enemy),
     });
-    alive = win;
+    alive = battleFeed.playerWon;
     matches.push({
       round,
       enemy,
@@ -1084,8 +1084,8 @@ function simulateTournament(team: Pokemon[], playerMoves: MoveSet, playerAbiliti
       enemyScore: projection.enemyScore,
       winRate: projection.winRate,
       roll,
-      win,
-      logs: [...battleLogs, ...projection.logs],
+      win: battleFeed.playerWon,
+      logs: [...battleFeed.logs, ...projection.logs],
       mvp: projection.mvp,
       risk: projection.risk,
     });
@@ -1139,7 +1139,7 @@ function simulateOpponent(
   const roll = Math.random();
   const win = roll <= projection.winRate;
   const opponentName = opponent?.name ?? "상대";
-  const battleLogs = createBattleFeed(team, enemyTeam, win, {
+  const battleFeed = createBattleFeed(team, enemyTeam, win, {
     opponentName,
     playerMoves,
     playerAbilities,
@@ -1151,10 +1151,10 @@ function simulateOpponent(
         options.revealRegion && options.leagueRegion
           ? `${options.leagueRegion} 리그 공개! ${withBattleParticle(`${opponent.title} ${opponent.name}`)}의 승부`
           : `${withBattleParticle(`${opponent.title} ${opponent.name}`)}의 승부`,
-        ...battleLogs,
+        ...battleFeed.logs,
         ...projection.logs,
       ]
-    : [...battleLogs, ...projection.logs];
+    : [...battleFeed.logs, ...projection.logs];
 
   return {
     round,
@@ -1163,7 +1163,7 @@ function simulateOpponent(
     enemyScore: projection.enemyScore,
     winRate: projection.winRate,
     roll,
-    win,
+    win: battleFeed.playerWon,
     logs,
     mvp: projection.mvp,
     risk: projection.risk,
