@@ -192,11 +192,11 @@ export function createBattleFeed(
       logs.push(formatMoveDamage(attacker, defender, result, nextHp));
       if (result.abilityNote) logs.push(result.abilityNote);
       if (result.statusApplied) {
-        statuses.set(defender.name, { condition: result.statusApplied, turns: initialStatusTurns(result.statusApplied) });
+        statuses.set(defender.name, { condition: result.statusApplied, turns: initialStatusTurns(result.statusApplied, defenderAbility) });
         logs.push(`${defender.displayName}${subjectParticle(defender.displayName)} ${statusLabel(result.statusApplied)} 상태가 되었다!`);
       }
       if (result.attackerStatusApplied) {
-        statuses.set(attacker.name, { condition: result.attackerStatusApplied, turns: initialStatusTurns(result.attackerStatusApplied) });
+        statuses.set(attacker.name, { condition: result.attackerStatusApplied, turns: initialStatusTurns(result.attackerStatusApplied, attackerAbility) });
         logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} ${statusLabel(result.attackerStatusApplied)} 상태가 되었다!`);
       }
 
@@ -478,6 +478,7 @@ function calculateMoveDamage(
 ) {
   const move = chooseBestMove(attacker, defender, moves);
   const effectiveDefenderAbility = ignoresDefensiveAbility(attackerAbility) ? undefined : defenderAbility;
+  const activeWeather = suppressesWeather(attackerAbility) || suppressesWeather(effectiveDefenderAbility) ? undefined : weather;
   if (!move) {
     return {
       move: undefined,
@@ -508,35 +509,39 @@ function calculateMoveDamage(
   const hugePowerBoost =
     (attackerAbility?.id === "huge-power" || attackerAbility?.id === "pure-power") && move.category === "physical" ? 1.45 : 1;
   const fatReduction = effectiveDefenderAbility?.id === "thick-fat" && (move.type === "Fire" || move.type === "Ice") ? 0.7 : 1;
-  const weatherBoost = weatherDamageMultiplier(move, weather);
-  const abilityPowerBoost = abilityDamageMultiplier(attacker, defender, move, attackerAbility, effectiveDefenderAbility, weather, multiplier);
+  const weatherBoost = weatherDamageMultiplier(move, activeWeather);
+  const abilityPowerBoost = abilityDamageMultiplier(attacker, defender, move, attackerAbility, effectiveDefenderAbility, activeWeather, multiplier, statuses);
+  const attackerStages = effectiveDefenderAbility?.id === "unaware" ? undefined : stages;
+  const defenderStages = attackerAbility?.id === "unaware" ? undefined : stages;
   const attackStat =
     move.category === "physical"
-      ? modifiedStat(attacker, "attack", stages, statuses, attackerAbility) * burnAttackPenalty * gutsBoost * hugePowerBoost
+      ? modifiedStat(attacker, "attack", attackerStages, statuses, attackerAbility, activeWeather) * burnAttackPenalty * gutsBoost * hugePowerBoost
       : move.category === "special"
-        ? modifiedStat(attacker, "specialAttack", stages, statuses, attackerAbility)
+        ? modifiedStat(attacker, "specialAttack", attackerStages, statuses, attackerAbility, activeWeather)
         : Math.max(
-            modifiedStat(attacker, "attack", stages, statuses, attackerAbility),
-            modifiedStat(attacker, "specialAttack", stages, statuses, attackerAbility),
+            modifiedStat(attacker, "attack", attackerStages, statuses, attackerAbility, activeWeather),
+            modifiedStat(attacker, "specialAttack", attackerStages, statuses, attackerAbility, activeWeather),
           ) * 0.6;
   const defenseStat =
     move.category === "physical"
-      ? modifiedStat(defender, "defense", stages, statuses, effectiveDefenderAbility)
+      ? modifiedStat(defender, "defense", defenderStages, statuses, effectiveDefenderAbility, activeWeather)
       : move.category === "special"
-        ? modifiedStat(defender, "specialDefense", stages, statuses, effectiveDefenderAbility)
+        ? modifiedStat(defender, "specialDefense", defenderStages, statuses, effectiveDefenderAbility, activeWeather)
         : Math.max(
-            modifiedStat(defender, "defense", stages, statuses, effectiveDefenderAbility),
-            modifiedStat(defender, "specialDefense", stages, statuses, effectiveDefenderAbility),
+            modifiedStat(defender, "defense", defenderStages, statuses, effectiveDefenderAbility, activeWeather),
+            modifiedStat(defender, "specialDefense", defenderStages, statuses, effectiveDefenderAbility, activeWeather),
           );
   const power = move.power ?? 25;
-  const accuracy = modifiedAccuracy(move, attackerAbility, defenderAbility);
+  const accuracy = modifiedAccuracy(move, attackerAbility, effectiveDefenderAbility, statuses?.get(defender.name)?.condition, activeWeather);
   if (Math.random() > accuracy) {
     return { move, damage: 0, multiplier, missed: true, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: undefined };
   }
 
   const randomFactor = 0.88 + Math.random() * 0.16;
+  const critical = isCriticalHit(move, attackerAbility, effectiveDefenderAbility, statuses?.get(defender.name)?.condition);
+  const criticalBoost = critical ? (attackerAbility?.id === "sniper" ? 2.25 : 1.5) : 1;
   const raw =
-    ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * fatReduction * weatherBoost * abilityPowerBoost) /
+    ((power * (attackStat / Math.max(35, defenseStat)) * stab * multiplier * fatReduction * weatherBoost * abilityPowerBoost * criticalBoost) /
       Math.max(40, defender.hp)) *
     18;
   let damage = clamp(Math.round(raw * randomFactor * bias), multiplier === 0 ? 0 : multiplier >= 2 ? 12 : 4, multiplier >= 4 ? 88 : 68);
@@ -547,17 +552,26 @@ function calculateMoveDamage(
     sturdyUsed?.add(defender.name);
     abilityNote = `${defender.displayName}의 옹골참! 아슬아슬하게 버텼다.`;
   }
-  abilityNote = abilityNote ?? applyHitReactionAbility(defender, effectiveDefenderAbility, move, stages);
-  const statusApplied = inferMoveStatusEffect(move, defender, effectiveDefenderAbility, statuses, attackerAbility);
-  const attackerStatusApplied = inferContactStatusEffect(move, attacker, effectiveDefenderAbility, statuses);
+  abilityNote = abilityNote ?? applyHitReactionAbility(attacker, defender, effectiveDefenderAbility, move, stages, critical);
+  let statusApplied = inferMoveStatusEffect(move, defender, effectiveDefenderAbility, statuses, attackerAbility, activeWeather);
+  if (!statusApplied && attackerAbility?.id === "poison-touch" && isContactMove(move) && !statuses?.has(defender.name) && Math.random() < 0.3) {
+    statusApplied = "poison";
+  }
+  let attackerStatusApplied = inferContactStatusEffect(move, attacker, effectiveDefenderAbility, statuses);
+  if (statusApplied === "poison" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "poison";
+  if (statusApplied === "burn" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "burn";
+  if (statusApplied === "paralysis" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "paralysis";
+  if (statusApplied && defenderAbility?.id === "magic-bounce" && !statuses?.has(attacker.name)) {
+    return { move, damage: 0, multiplier, missed: false, statusApplied: undefined, attackerStatusApplied: statusApplied, abilityNote: `${defender.displayName}의 ${defenderAbility.name}! 상태이상을 되돌렸다.` };
+  }
 
-  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote };
+  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote, critical };
 }
 
 function formatMoveDamage(
   attacker: Pokemon,
   defender: Pokemon,
-  result: { move?: BattleMove; damage: number; multiplier: number; missed?: boolean },
+  result: { move?: BattleMove; damage: number; multiplier: number; missed?: boolean; critical?: boolean },
   nextHp: number,
 ) {
   const moveName = result.move?.displayName ?? `${bestAttackLabel(attacker, defender)} 공격`;
@@ -565,7 +579,7 @@ function formatMoveDamage(
     return `${attacker.displayName}의 ${moveName}! 그러나 빗나갔다!`;
   }
 
-  const effectText = formatEffectText(result.multiplier);
+  const effectText = `${result.critical ? "급소에 맞았다! " : ""}${formatEffectText(result.multiplier)}`;
   return `${attacker.displayName}의 ${moveName}! ${effectText}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${nextHp}%.`;
 }
 
@@ -711,13 +725,21 @@ function applyKnockoutAbility(attacker: Pokemon, ability: BattleAbility | undefi
 }
 
 function applyHitReactionAbility(
+  attacker: Pokemon,
   defender: Pokemon,
   ability: BattleAbility | undefined,
   move: BattleMove,
   stages?: Map<string, BattleStages>,
+  critical = false,
 ) {
   if (!ability || !stages) return undefined;
   const currentStages = stages.get(defender.name) ?? emptyStages();
+  const attackerStages = stages.get(attacker.name) ?? emptyStages();
+  if (ability.id === "anger-point" && critical) {
+    currentStages.attack = 6;
+    stages.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 급소에 맞고 공격이 최대까지 올랐다.`;
+  }
   if (ability.id === "weak-armor" && move.category === "physical") {
     currentStages.defense = clamp(currentStages.defense - 1, -6, 6);
     currentStages.speed = clamp(currentStages.speed + 2, -6, 6);
@@ -748,6 +770,16 @@ function applyHitReactionAbility(
     currentStages.speed = clamp(currentStages.speed + 1, -6, 6);
     stages.set(defender.name, currentStages);
     return `${defender.displayName}의 ${ability.name}! 스피드가 올랐다.`;
+  }
+  if (ability.id === "gooey" && isContactMove(move)) {
+    attackerStages.speed = clamp(attackerStages.speed - 1, -6, 6);
+    stages.set(attacker.name, attackerStages);
+    return `${defender.displayName}의 ${ability.name}! ${attacker.displayName}의 스피드가 떨어졌다.`;
+  }
+  if (ability.id === "cotton-down" && isContactMove(move)) {
+    attackerStages.speed = clamp(attackerStages.speed - 1, -6, 6);
+    stages.set(attacker.name, attackerStages);
+    return `${defender.displayName}의 ${ability.name}! ${attacker.displayName}의 스피드가 떨어졌다.`;
   }
   return undefined;
 }
@@ -907,9 +939,11 @@ function abilityDamageMultiplier(
   defenderAbility: BattleAbility | undefined,
   weather?: WeatherState,
   typeMultiplier = bestAttackMultiplier([move.type], defender.types),
+  statuses?: Map<string, BattleStatusState>,
 ) {
   let multiplier = 1;
   const hpRatioHint = attacker.hp <= 55 ? 0.33 : 1;
+  const attackerStatus = statuses?.get(attacker.name)?.condition;
   if (attackerAbility?.id === "overgrow" && move.type === "Grass" && hpRatioHint <= 0.33) multiplier *= 1.5;
   if (attackerAbility?.id === "blaze" && move.type === "Fire" && hpRatioHint <= 0.33) multiplier *= 1.5;
   if (attackerAbility?.id === "torrent" && move.type === "Water" && hpRatioHint <= 0.33) multiplier *= 1.5;
@@ -928,6 +962,22 @@ function abilityDamageMultiplier(
   if (attackerAbility?.id === "steelworker" && move.type === "Steel") multiplier *= 1.5;
   if (attackerAbility?.id === "water-bubble" && move.type === "Water") multiplier *= 1.6;
   if (attackerAbility?.id === "tinted-lens" && typeMultiplier < 1 && typeMultiplier > 0) multiplier *= 2;
+  if (attackerAbility?.id === "flare-boost" && attackerStatus === "burn" && move.category === "special") multiplier *= 1.5;
+  if (attackerAbility?.id === "toxic-boost" && attackerStatus === "poison" && move.category === "physical") multiplier *= 1.5;
+  if (attackerAbility?.id === "rivalry") {
+    multiplier *= attacker.types.some((type) => defender.types.includes(type)) ? 1.15 : 0.9;
+  }
+  if (attackerAbility?.id === "analytic" && attacker.speed < defender.speed) multiplier *= 1.3;
+  if (attackerAbility?.id === "fairy-aura" && move.type === "Fairy") multiplier *= defenderAbility?.id === "aura-break" ? 0.75 : 1.3;
+  if (attackerAbility?.id === "dark-aura" && move.type === "Dark") multiplier *= defenderAbility?.id === "aura-break" ? 0.75 : 1.3;
+  if (attackerAbility?.id === "stakeout") multiplier *= 1.15;
+  if (attackerAbility?.id === "dragons-maw" && move.type === "Dragon") multiplier *= 1.5;
+  if (attackerAbility?.id === "transistor" && move.type === "Electric") multiplier *= 1.3;
+  if (attackerAbility?.id === "rocky-payload" && move.type === "Rock") multiplier *= 1.5;
+  if (attackerAbility?.id === "sword-of-ruin" && move.category === "physical") multiplier *= 1.33;
+  if (attackerAbility?.id === "beads-of-ruin" && move.category === "special") multiplier *= 1.33;
+  if (defenderAbility?.id === "tablets-of-ruin" && move.category === "physical") multiplier *= 0.75;
+  if (defenderAbility?.id === "vessel-of-ruin" && move.category === "special") multiplier *= 0.75;
   if (defenderAbility?.id === "filter" || defenderAbility?.id === "solid-rock" || defenderAbility?.id === "prism-armor") {
     if (typeMultiplier > 1) multiplier *= 0.75;
   }
@@ -936,6 +986,8 @@ function abilityDamageMultiplier(
   if (defenderAbility?.id === "heatproof" && move.type === "Fire") multiplier *= 0.5;
   if (defenderAbility?.id === "water-bubble" && move.type === "Fire") multiplier *= 0.5;
   if (defenderAbility?.id === "fur-coat" && move.category === "physical") multiplier *= 0.5;
+  if (defenderAbility?.id === "ice-scales" && move.category === "special") multiplier *= 0.5;
+  if (defenderAbility?.id === "purifying-salt" && move.type === "Ghost") multiplier *= 0.5;
   if (defenderAbility?.id === "multiscale" || defenderAbility?.id === "shadow-shield") multiplier *= 0.75;
   return multiplier;
 }
@@ -952,13 +1004,39 @@ function weatherDamageMultiplier(move: BattleMove, weather?: WeatherState) {
   return 1;
 }
 
-function modifiedAccuracy(move: BattleMove, attackerAbility?: BattleAbility, defenderAbility?: BattleAbility) {
+function modifiedAccuracy(
+  move: BattleMove,
+  attackerAbility?: BattleAbility,
+  defenderAbility?: BattleAbility,
+  defenderStatus?: StatusCondition,
+  weather?: WeatherState,
+) {
   if (attackerAbility?.id === "no-guard" || defenderAbility?.id === "no-guard") return 1;
   let accuracy = (move.accuracy ?? 100) / 100;
+  const baseAccuracy = accuracy;
   if (attackerAbility?.id === "compound-eyes") accuracy *= 1.3;
+  if (attackerAbility?.id === "victory-star") accuracy *= 1.1;
   if (attackerAbility?.id === "hustle" && move.category === "physical") accuracy *= 0.82;
   if (defenderAbility?.id === "wonder-skin" && move.category === "status") accuracy *= 0.5;
+  if (defenderAbility?.id === "sand-veil" && weather?.condition === "sand") accuracy *= 0.8;
+  if (defenderAbility?.id === "snow-cloak" && weather?.condition === "snow") accuracy *= 0.8;
+  if (defenderAbility?.id === "tangled-feet" && defenderStatus === "confusion") accuracy *= 0.75;
+  if (attackerAbility?.id === "keen-eye") accuracy = Math.max(accuracy, baseAccuracy);
   return clamp(accuracy, 0.05, 1);
+}
+
+function isCriticalHit(
+  move: BattleMove,
+  attackerAbility?: BattleAbility,
+  defenderAbility?: BattleAbility,
+  defenderStatus?: StatusCondition,
+) {
+  if (defenderAbility?.id === "battle-armor" || defenderAbility?.id === "shell-armor") return false;
+  if (attackerAbility?.id === "merciless" && defenderStatus === "poison") return true;
+  let chance = 0.08;
+  if (attackerAbility?.id === "super-luck") chance += 0.12;
+  if (isHighCritMove(move)) chance += 0.12;
+  return Math.random() < clamp(chance, 0, 0.5);
 }
 
 function inferMoveStatusEffect(
@@ -967,11 +1045,16 @@ function inferMoveStatusEffect(
   defenderAbility: BattleAbility | undefined,
   statuses?: Map<string, BattleStatusState>,
   attackerAbility?: BattleAbility,
+  weather?: WeatherState,
 ): StatusCondition | undefined {
   if (statuses?.has(defender.name)) return undefined;
   const effect = moveStatusEffect(move);
   if (!effect) return undefined;
   if (defenderAbility?.id === "shield-dust") return undefined;
+  if (defenderAbility?.id === "good-as-gold" && move.category === "status") return undefined;
+  if (defenderAbility?.id === "purifying-salt") return undefined;
+  if (defenderAbility?.id === "leaf-guard" && weather?.condition === "sun") return undefined;
+  if (defenderAbility?.id === "overcoat" && isPowderMove(move)) return undefined;
   const chance = attackerAbility?.id === "serene-grace" ? Math.min(1, effect.chance * 2) : effect.chance;
   if (Math.random() > chance) return undefined;
   if (defenderAbility?.id === "immunity" && effect.condition === "poison") return undefined;
@@ -981,7 +1064,11 @@ function inferMoveStatusEffect(
   if (defenderAbility?.id === "magma-armor" && effect.condition === "freeze") return undefined;
   if (defenderAbility?.id === "own-tempo" && effect.condition === "confusion") return undefined;
   if (defender.types.includes("Fire") && effect.condition === "burn") return undefined;
-  if ((defender.types.includes("Poison") || defender.types.includes("Steel")) && effect.condition === "poison") return undefined;
+  if (
+    (defender.types.includes("Poison") || defender.types.includes("Steel")) &&
+    effect.condition === "poison" &&
+    attackerAbility?.id !== "corrosion"
+  ) return undefined;
   if (defender.types.includes("Electric") && effect.condition === "paralysis") return undefined;
   if (defender.types.includes("Ice") && effect.condition === "freeze") return undefined;
   return effect.condition;
@@ -998,6 +1085,7 @@ function inferContactStatusEffect(
   if (defenderAbility.id === "flame-body" && Math.random() < 0.3) return "burn";
   if (defenderAbility.id === "poison-point" && Math.random() < 0.3) return "poison";
   if (defenderAbility.id === "cute-charm" && Math.random() < 0.2) return "confusion";
+  if (defenderAbility.id === "cursed-body" && Math.random() < 0.3) return "confusion";
   if (defenderAbility.id === "effect-spore" && Math.random() < 0.3) return randomItem(["poison", "paralysis", "sleep"] as StatusCondition[]);
   return undefined;
 }
@@ -1040,6 +1128,10 @@ function preventsIntimidate(ability: BattleAbility | undefined) {
 
 function ignoresDefensiveAbility(ability: BattleAbility | undefined) {
   return ability?.id === "mold-breaker" || ability?.id === "teravolt" || ability?.id === "turboblaze";
+}
+
+function suppressesWeather(ability: BattleAbility | undefined) {
+  return ability?.id === "cloud-nine" || ability?.id === "air-lock";
 }
 
 function weatherLabel(condition: WeatherCondition) {
@@ -1091,6 +1183,22 @@ function isSlicingMove(move: BattleMove) {
   return ["slash", "cut", "blade", "cutter", "scythe", "sacred-sword"].some((token) => name.includes(token));
 }
 
+function isHighCritMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return [
+    "slash",
+    "leaf-blade",
+    "night-slash",
+    "cross-chop",
+    "stone-edge",
+    "drill-run",
+    "psycho-cut",
+    "shadow-claw",
+    "razor-leaf",
+    "air-cutter",
+  ].some((token) => name.includes(token));
+}
+
 function isSoundMove(move: BattleMove) {
   const name = move.name.toLowerCase();
   return ["sound", "voice", "song", "boomburst", "hyper-voice", "bug-buzz", "snarl", "uproar", "screech"].some((token) =>
@@ -1103,8 +1211,13 @@ function isBallMove(move: BattleMove) {
   return ["ball", "bomb", "blast", "barrage", "bullet", "seed"].some((token) => name.includes(token));
 }
 
-function initialStatusTurns(condition: StatusCondition) {
-  if (condition === "sleep") return 2 + Math.floor(Math.random() * 3);
+function isPowderMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return name.includes("powder") || name.includes("spore") || name.includes("cotton-spore") || name.includes("stun-spore");
+}
+
+function initialStatusTurns(condition: StatusCondition, ability?: BattleAbility) {
+  if (condition === "sleep") return ability?.id === "early-bird" ? 1 + Math.floor(Math.random() * 2) : 2 + Math.floor(Math.random() * 3);
   if (condition === "confusion") return 2 + Math.floor(Math.random() * 3);
   return 0;
 }
@@ -1158,7 +1271,22 @@ function modifiedStat(
       : 1;
   const quickFeetBoost = stat === "speed" && Boolean(status) && ability?.id === "quick-feet" ? 1.5 : 1;
   const unburdenBoost = stat === "speed" && ability?.id === "unburden" ? 1.25 : 1;
-  return base * stageMultiplier(stage) * paralysisPenalty * marvelScaleBoost * weatherSpeedBoost * quickFeetBoost * unburdenBoost;
+  const slowStartPenalty = ability?.id === "slow-start" && (stat === "attack" || stat === "speed") ? 0.6 : 1;
+  const defeatistPenalty = ability?.id === "defeatist" && (stat === "attack" || stat === "specialAttack") ? 0.75 : 1;
+  const flowerGiftBoost =
+    ability?.id === "flower-gift" && weather?.condition === "sun" && (stat === "attack" || stat === "specialDefense") ? 1.35 : 1;
+  return (
+    base *
+    stageMultiplier(stage) *
+    paralysisPenalty *
+    marvelScaleBoost *
+    weatherSpeedBoost *
+    quickFeetBoost *
+    unburdenBoost *
+    slowStartPenalty *
+    defeatistPenalty *
+    flowerGiftBoost
+  );
 }
 
 function stageMultiplier(stage: number) {
