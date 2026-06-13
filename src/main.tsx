@@ -133,6 +133,55 @@ const implementedAbilityIds = new Set([
   "white-smoke",
   "wonder-skin",
 ]);
+const passiveAbilityIds = new Set([
+  "anticipation",
+  "aroma-veil",
+  "ball-fetch",
+  "battery",
+  "cheek-pouch",
+  "commander",
+  "costar",
+  "curious-medicine",
+  "damp",
+  "emergency-exit",
+  "flower-veil",
+  "forewarn",
+  "friend-guard",
+  "frisk",
+  "gluttony",
+  "gulp-missile",
+  "harvest",
+  "healer",
+  "honey-gather",
+  "illuminate",
+  "innards-out",
+  "klutz",
+  "magician",
+  "magnet-pull",
+  "minus",
+  "mimicry",
+  "neutralizing-gas",
+  "pastel-veil",
+  "pickup",
+  "pickpocket",
+  "plus",
+  "power-spot",
+  "propeller-tail",
+  "receiver",
+  "ripen",
+  "run-away",
+  "schooling",
+  "shadow-tag",
+  "stall",
+  "sticky-hold",
+  "stalwart",
+  "steely-spirit",
+  "suction-cups",
+  "symbiosis",
+  "telepathy",
+  "unnerve",
+  "wandering-spirit",
+]);
 
 function App() {
   const [mode, setMode] = React.useState<GameMode>("random");
@@ -671,12 +720,15 @@ function LockedParty({
 
 function AbilityPanel({ ability, compact = false }: { ability: BattleAbility; compact?: boolean }) {
   const isImplemented = implementedAbilityIds.has(ability.id);
+  const isPassive = passiveAbilityIds.has(ability.id);
   return (
     <article className={compact ? "ability-panel compact" : "ability-panel"}>
       <strong>
         특성: {ability.name}
         {ability.isHidden ? <span>숨겨진 특성</span> : null}
-        <span className={isImplemented ? "implemented" : "pending"}>{isImplemented ? "효과 적용" : "표시 전용"}</span>
+        <span className={isImplemented ? "implemented" : isPassive ? "passive" : "pending"}>
+          {isImplemented ? "효과 적용" : isPassive ? "전투 영향 없음" : "구현 예정"}
+        </span>
       </strong>
       <p>{ability.description}</p>
     </article>

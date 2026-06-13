@@ -531,6 +531,11 @@ h2 {
   color: var(--good);
 }
 
+.ability-panel strong span.passive {
+  background: rgba(238, 243, 251, 0.14);
+  color: var(--text);
+}
+
 .ability-panel strong span.pending {
   background: rgba(170, 181, 196, 0.14);
   color: var(--muted);
