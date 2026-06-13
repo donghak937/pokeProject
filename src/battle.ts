@@ -145,11 +145,19 @@ export function createBattleFeed(
       );
     }
 
+    const playerPreviewMove = chooseBestMove(playerActive, enemyActive, options.playerMoves?.[playerActive.name]);
+    const enemyPreviewMove = chooseBestMove(enemyActive, playerActive, options.enemyMoves?.[enemyActive.name]);
+    const playerPriority = actionPriority(abilityFor("player", playerActive), playerPreviewMove, abilityFor("enemy", enemyActive));
+    const enemyPriority = actionPriority(abilityFor("enemy", enemyActive), enemyPreviewMove, abilityFor("player", playerActive));
     const firstSide =
-      modifiedStat(playerActive, "speed", stages, statuses, abilityFor("player", playerActive), weather) >=
-      modifiedStat(enemyActive, "speed", stages, statuses, abilityFor("enemy", enemyActive), weather)
-        ? "player"
-        : "enemy";
+      playerPriority !== enemyPriority
+        ? playerPriority > enemyPriority
+          ? "player"
+          : "enemy"
+        : modifiedStat(playerActive, "speed", stages, statuses, abilityFor("player", playerActive), weather) >=
+            modifiedStat(enemyActive, "speed", stages, statuses, abilityFor("enemy", enemyActive), weather)
+          ? "player"
+          : "enemy";
     const actions = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
 
     for (const side of actions) {
@@ -191,6 +199,11 @@ export function createBattleFeed(
       hp.set(defender.name, nextHp);
       logs.push(formatMoveDamage(attacker, defender, result, nextHp));
       if (result.abilityNote) logs.push(result.abilityNote);
+      if (result.attackerDamage && result.attackerDamage > 0) {
+        const attackerHp = Math.max(0, Math.round((hp.get(attacker.name) ?? 100) - result.attackerDamage));
+        hp.set(attacker.name, attackerHp);
+        logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 특성 피해로 ${result.attackerDamage}% 피해. 남은 HP ${attackerHp}%.`);
+      }
       if (result.statusApplied) {
         statuses.set(defender.name, { condition: result.statusApplied, turns: initialStatusTurns(result.statusApplied, defenderAbility) });
         logs.push(`${defender.displayName}${subjectParticle(defender.displayName)} ${statusLabel(result.statusApplied)} 상태가 되었다!`);
@@ -200,9 +213,18 @@ export function createBattleFeed(
         logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} ${statusLabel(result.attackerStatusApplied)} 상태가 되었다!`);
       }
 
-      if (nextHp > 0) continue;
+      if (nextHp > 0) {
+        if ((hp.get(attacker.name) ?? 100) <= 0) logs.push(`${attacker.displayName} 다운!`);
+        continue;
+      }
 
       logs.push(`${defender.displayName} 다운!`);
+      const aftermathDamage = knockoutContactDamage(result.move, defenderAbility, attackerAbility);
+      if (aftermathDamage > 0) {
+        const attackerHp = Math.max(0, Math.round((hp.get(attacker.name) ?? 100) - aftermathDamage));
+        hp.set(attacker.name, attackerHp);
+        logs.push(`${defender.displayName}의 ${defenderAbility?.name}! ${attacker.displayName}에게 ${aftermathDamage}% 피해. 남은 HP ${attackerHp}%.`);
+      }
       const knockoutLog = applyKnockoutAbility(attacker, abilityFor(side, attacker), stages);
       if (knockoutLog) logs.push(knockoutLog);
       if (side === "player") {
@@ -476,10 +498,10 @@ function calculateMoveDamage(
   sturdyUsed?: Set<string>,
   weather?: WeatherState,
 ) {
-  const move = chooseBestMove(attacker, defender, moves);
+  const chosenMove = chooseBestMove(attacker, defender, moves);
   const effectiveDefenderAbility = ignoresDefensiveAbility(attackerAbility) ? undefined : defenderAbility;
   const activeWeather = suppressesWeather(attackerAbility) || suppressesWeather(effectiveDefenderAbility) ? undefined : weather;
-  if (!move) {
+  if (!chosenMove) {
     return {
       move: undefined,
       damage: clamp(Math.round((duelScore(attacker, defender) / 38) * bias), 8, 34),
@@ -489,6 +511,7 @@ function calculateMoveDamage(
       abilityNote: undefined,
     };
   }
+  const move = applyMoveTypeAbility(chosenMove, attackerAbility);
 
   const immunity = abilityImmunity(defender, effectiveDefenderAbility, move, stages);
   if (immunity) {
@@ -502,7 +525,12 @@ function calculateMoveDamage(
       : effectiveDefenderAbility?.id === "levitate" && move.type === "Ground"
         ? 0
         : rawMultiplier;
-  const stab = attacker.types.includes(move.type) ? (attackerAbility?.id === "adaptability" ? 2 : 1.5) : 1;
+  const stab =
+    attacker.types.includes(move.type) || changesUserTypeForMove(attackerAbility, move)
+      ? attackerAbility?.id === "adaptability"
+        ? 2
+        : 1.5
+      : 1;
   const burnAttackPenalty =
     move.category === "physical" && statuses?.get(attacker.name)?.condition === "burn" && attackerAbility?.id !== "guts" ? 0.55 : 1;
   const gutsBoost = attackerAbility?.id === "guts" && statuses?.has(attacker.name) && move.category === "physical" ? 1.35 : 1;
@@ -557,7 +585,16 @@ function calculateMoveDamage(
   if (!statusApplied && attackerAbility?.id === "poison-touch" && isContactMove(move) && !statuses?.has(defender.name) && Math.random() < 0.3) {
     statusApplied = "poison";
   }
-  let attackerStatusApplied = inferContactStatusEffect(move, attacker, effectiveDefenderAbility, statuses);
+  if (
+    !statusApplied &&
+    (attackerAbility?.id === "toxic-chain" || attackerAbility?.id === "poison-puppeteer") &&
+    move.category !== "status" &&
+    !statuses?.has(defender.name) &&
+    Math.random() < 0.3
+  ) {
+    statusApplied = "poison";
+  }
+  let attackerStatusApplied = inferContactStatusEffect(move, attacker, attackerAbility, effectiveDefenderAbility, statuses);
   if (statusApplied === "poison" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "poison";
   if (statusApplied === "burn" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "burn";
   if (statusApplied === "paralysis" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "paralysis";
@@ -565,7 +602,8 @@ function calculateMoveDamage(
     return { move, damage: 0, multiplier, missed: false, statusApplied: undefined, attackerStatusApplied: statusApplied, abilityNote: `${defender.displayName}의 ${defenderAbility.name}! 상태이상을 되돌렸다.` };
   }
 
-  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote, critical };
+  const attackerDamage = contactAbilityDamage(move, effectiveDefenderAbility, attackerAbility);
+  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote, critical, attackerDamage };
 }
 
 function formatMoveDamage(
@@ -664,6 +702,13 @@ function applyEntryAbility(
     logs.push(`${active.displayName}의 ${ability.name}! ${battleStatLabel(targetStat)}이 올랐다.`);
   }
 
+  if (ability.id === "supersweet-syrup") {
+    const opponentStages = stages.get(opponent.name) ?? emptyStages();
+    opponentStages.speed = clamp(opponentStages.speed - 1, -6, 6);
+    stages.set(opponent.name, opponentStages);
+    logs.push(`${active.displayName}의 ${ability.name}! ${opponent.displayName}의 스피드가 떨어졌다.`);
+  }
+
   const entryBoost = entryStageBoost(ability.id);
   if (entryBoost) {
     const currentStages = stages.get(active.name) ?? emptyStages();
@@ -714,6 +759,11 @@ function applyKnockoutAbility(attacker: Pokemon, ability: BattleAbility | undefi
     currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
     stages.set(attacker.name, currentStages);
     return `${attacker.displayName}의 ${ability.name}! 특공이 올랐다.`;
+  }
+  if (ability.id === "soul-heart") {
+    currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
+    stages.set(attacker.name, currentStages);
+    return `${attacker.displayName}의 ${ability.name}! 특수공격이 올랐다.`;
   }
   if (ability.id === "beast-boost") {
     const stat = highestBattleStat(attacker);
@@ -879,7 +929,27 @@ function applyEndTurnStatus(
       hp.set(mon.name, nextHp);
       logs.push(`${mon.displayName}의 ${ability.name}! HP를 ${nextHp}%까지 회복했다.`);
     }
+    if (ability?.id === "grassy-surge" || ability?.id === "seed-sower" || ability?.id === "hospitality") {
+      const nextHp = Math.min(100, (hp.get(mon.name) ?? 100) + 5);
+      hp.set(mon.name, nextHp);
+      logs.push(`${mon.displayName}의 ${ability.name}! HP를 ${nextHp}%까지 회복했다.`);
+    }
   });
+
+  if (playerActive && enemyActive) {
+    const playerAbility = abilityFor("player", playerActive);
+    const enemyAbility = abilityFor("enemy", enemyActive);
+    if (playerAbility?.id === "bad-dreams" && statuses.get(enemyActive.name)?.condition === "sleep") {
+      const nextHp = Math.max(0, (hp.get(enemyActive.name) ?? 100) - 8);
+      hp.set(enemyActive.name, nextHp);
+      logs.push(`${playerActive.displayName}의 ${playerAbility.name}! ${enemyActive.displayName}의 꿈을 갉아먹었다. 남은 HP ${nextHp}%.`);
+    }
+    if (enemyAbility?.id === "bad-dreams" && statuses.get(playerActive.name)?.condition === "sleep") {
+      const nextHp = Math.max(0, (hp.get(playerActive.name) ?? 100) - 8);
+      hp.set(playerActive.name, nextHp);
+      logs.push(`${enemyActive.displayName}의 ${enemyAbility.name}! ${playerActive.displayName}의 꿈을 갉아먹었다. 남은 HP ${nextHp}%.`);
+    }
+  }
 
   if (weather.condition && weather.turns > 0) {
     weather.turns -= 1;
@@ -900,6 +970,13 @@ function abilityImmunity(
 ) {
   if (!ability) return undefined;
   const currentStages = stages?.get(defender.name) ?? emptyStages();
+  const typeMultiplier = bestAttackMultiplier([move.type], defender.types);
+  if (ability.id === "wonder-guard" && typeMultiplier <= 1) return `${defender.displayName}의 ${ability.name}! 효과가 뛰어난 기술만 통한다.`;
+  if (ability.id === "well-baked-body" && move.type === "Fire") {
+    currentStages.defense = clamp(currentStages.defense + 2, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 불꽃을 막고 방어가 크게 올랐다.`;
+  }
   if (ability.id === "flash-fire" && move.type === "Fire") return `${defender.displayName}의 ${ability.name}! 불꽃 공격을 무효화했다.`;
   if (ability.id === "levitate" && move.type === "Ground") return `${defender.displayName}의 ${ability.name}! 땅 공격을 피했다.`;
   if (ability.id === "water-absorb" && move.type === "Water") return `${defender.displayName}의 ${ability.name}! 물 공격을 흡수했다.`;
@@ -910,6 +987,11 @@ function abilityImmunity(
     currentStages.attack = clamp(currentStages.attack + 1, -6, 6);
     stages?.set(defender.name, currentStages);
     return `${defender.displayName}의 ${ability.name}! 풀 공격을 막고 공격이 올랐다.`;
+  }
+  if (ability.id === "thermal-exchange" && move.type === "Fire") {
+    currentStages.attack = clamp(currentStages.attack + 1, -6, 6);
+    stages?.set(defender.name, currentStages);
+    return `${defender.displayName}의 ${ability.name}! 열을 받아 공격이 올랐다.`;
   }
   if (ability.id === "lightning-rod" && move.type === "Electric") {
     currentStages.specialAttack = clamp(currentStages.specialAttack + 1, -6, 6);
@@ -959,9 +1041,13 @@ function abilityDamageMultiplier(
   if (attackerAbility?.id === "punk-rock" && isSoundMove(move)) multiplier *= 1.3;
   if (attackerAbility?.id === "sand-force" && weather?.condition === "sand" && ["Rock", "Ground", "Steel"].includes(move.type)) multiplier *= 1.3;
   if (attackerAbility?.id === "solar-power" && weather?.condition === "sun" && move.category === "special") multiplier *= 1.35;
-  if (attackerAbility?.id === "steelworker" && move.type === "Steel") multiplier *= 1.5;
   if (attackerAbility?.id === "water-bubble" && move.type === "Water") multiplier *= 1.6;
   if (attackerAbility?.id === "tinted-lens" && typeMultiplier < 1 && typeMultiplier > 0) multiplier *= 2;
+  if (attackerAbility?.id === "normalize" && move.type === "Normal") multiplier *= 1.2;
+  if ((attackerAbility?.id === "pixilate" || attackerAbility?.id === "refrigerate") && (move.type === "Fairy" || move.type === "Ice")) {
+    multiplier *= 1.2;
+  }
+  if (attackerAbility?.id === "liquid-voice" && move.type === "Water" && isSoundMove(move)) multiplier *= 1.2;
   if (attackerAbility?.id === "flare-boost" && attackerStatus === "burn" && move.category === "special") multiplier *= 1.5;
   if (attackerAbility?.id === "toxic-boost" && attackerStatus === "poison" && move.category === "physical") multiplier *= 1.5;
   if (attackerAbility?.id === "rivalry") {
@@ -974,6 +1060,17 @@ function abilityDamageMultiplier(
   if (attackerAbility?.id === "dragons-maw" && move.type === "Dragon") multiplier *= 1.5;
   if (attackerAbility?.id === "transistor" && move.type === "Electric") multiplier *= 1.3;
   if (attackerAbility?.id === "rocky-payload" && move.type === "Rock") multiplier *= 1.5;
+  if (attackerAbility?.id === "gale-wings" && move.type === "Flying") multiplier *= 1.15;
+  if (attackerAbility?.id === "triage" && isHealingMove(move)) multiplier *= 1.2;
+  if (attackerAbility?.id === "steelworker" && move.type === "Steel") multiplier *= 1.5;
+  if (attackerAbility?.id === "supreme-overlord") multiplier *= 1.12;
+  if (attackerAbility?.id === "hadron-engine" && move.type === "Electric") multiplier *= 1.3;
+  if (attackerAbility?.id === "orichalcum-pulse" && move.category === "physical") multiplier *= 1.3;
+  if (attackerAbility?.id === "protosynthesis" || attackerAbility?.id === "quark-drive") multiplier *= 1.12;
+  if (attackerAbility?.id === "electric-surge" && move.type === "Electric") multiplier *= 1.25;
+  if (attackerAbility?.id === "grassy-surge" && move.type === "Grass") multiplier *= 1.25;
+  if (attackerAbility?.id === "psychic-surge" && move.type === "Psychic") multiplier *= 1.25;
+  if (attackerAbility?.id === "misty-surge" && move.type === "Fairy") multiplier *= 1.15;
   if (attackerAbility?.id === "sword-of-ruin" && move.category === "physical") multiplier *= 1.33;
   if (attackerAbility?.id === "beads-of-ruin" && move.category === "special") multiplier *= 1.33;
   if (defenderAbility?.id === "tablets-of-ruin" && move.category === "physical") multiplier *= 0.75;
@@ -986,6 +1083,9 @@ function abilityDamageMultiplier(
   if (defenderAbility?.id === "heatproof" && move.type === "Fire") multiplier *= 0.5;
   if (defenderAbility?.id === "water-bubble" && move.type === "Fire") multiplier *= 0.5;
   if (defenderAbility?.id === "fur-coat" && move.category === "physical") multiplier *= 0.5;
+  if (defenderAbility?.id === "pressure") multiplier *= 0.95;
+  if (defenderAbility?.id === "grass-pelt" && move.category === "physical") multiplier *= 0.8;
+  if (defenderAbility?.id === "multitype" || defenderAbility?.id === "rks-system") multiplier *= 0.95;
   if (defenderAbility?.id === "ice-scales" && move.category === "special") multiplier *= 0.5;
   if (defenderAbility?.id === "purifying-salt" && move.type === "Ghost") multiplier *= 0.5;
   if (defenderAbility?.id === "multiscale" || defenderAbility?.id === "shadow-shield") multiplier *= 0.75;
@@ -1002,6 +1102,32 @@ function weatherDamageMultiplier(move: BattleMove, weather?: WeatherState) {
     if (move.type === "Water") return 0.65;
   }
   return 1;
+}
+
+function applyMoveTypeAbility(move: BattleMove, ability?: BattleAbility): BattleMove {
+  if (move.category === "status") return move;
+  if (ability?.id === "normalize") return { ...move, type: "Normal" };
+  if (ability?.id === "pixilate" && move.type === "Normal") return { ...move, type: "Fairy" };
+  if (ability?.id === "refrigerate" && move.type === "Normal") return { ...move, type: "Ice" };
+  if (ability?.id === "liquid-voice" && isSoundMove(move)) return { ...move, type: "Water" };
+  return move;
+}
+
+function changesUserTypeForMove(ability: BattleAbility | undefined, move: BattleMove) {
+  return (ability?.id === "protean" || ability?.id === "libero") && move.category !== "status";
+}
+
+function contactAbilityDamage(move: BattleMove, defenderAbility?: BattleAbility, attackerAbility?: BattleAbility) {
+  if (!defenderAbility || !isContactMove(move) || attackerAbility?.id === "long-reach") return 0;
+  if (defenderAbility.id === "rough-skin" || defenderAbility.id === "iron-barbs") return 8;
+  if (defenderAbility.id === "liquid-ooze" && isHealingMove(move)) return 10;
+  return 0;
+}
+
+function knockoutContactDamage(move: BattleMove | undefined, defenderAbility?: BattleAbility, attackerAbility?: BattleAbility) {
+  if (!move || !defenderAbility || !isContactMove(move) || attackerAbility?.id === "long-reach") return 0;
+  if (defenderAbility.id === "aftermath") return 16;
+  return 0;
 }
 
 function modifiedAccuracy(
@@ -1077,15 +1203,17 @@ function inferMoveStatusEffect(
 function inferContactStatusEffect(
   move: BattleMove,
   attacker: Pokemon,
+  attackerAbility: BattleAbility | undefined,
   defenderAbility: BattleAbility | undefined,
   statuses?: Map<string, BattleStatusState>,
 ): StatusCondition | undefined {
-  if (!defenderAbility || !isContactMove(move) || statuses?.has(attacker.name)) return undefined;
+  if (!defenderAbility || !isContactMove(move) || attackerAbility?.id === "long-reach" || statuses?.has(attacker.name)) return undefined;
   if (defenderAbility.id === "static" && Math.random() < 0.3) return "paralysis";
   if (defenderAbility.id === "flame-body" && Math.random() < 0.3) return "burn";
   if (defenderAbility.id === "poison-point" && Math.random() < 0.3) return "poison";
   if (defenderAbility.id === "cute-charm" && Math.random() < 0.2) return "confusion";
   if (defenderAbility.id === "cursed-body" && Math.random() < 0.3) return "confusion";
+  if (defenderAbility.id === "toxic-debris" && Math.random() < 0.3) return "poison";
   if (defenderAbility.id === "effect-spore" && Math.random() < 0.3) return randomItem(["poison", "paralysis", "sleep"] as StatusCondition[]);
   return undefined;
 }
@@ -1107,6 +1235,8 @@ function moveStatusEffect(move: BattleMove): { condition: StatusCondition; chanc
 }
 
 function entryWeather(abilityId: string): { condition: WeatherCondition; label: string } | undefined {
+  if (abilityId === "orichalcum-pulse") return { condition: "sun", label: "고대의 맥동으로 햇살이 강해졌다." };
+  if (abilityId === "sand-spit") return { condition: "sand", label: "모래가 흩날리기 시작했다." };
   if (abilityId === "drizzle") return { condition: "rain", label: "비가 내리기 시작했다." };
   if (abilityId === "drought") return { condition: "sun", label: "햇살이 강해졌다." };
   if (abilityId === "sand-stream") return { condition: "sand", label: "모래바람이 불기 시작했다." };
@@ -1115,13 +1245,15 @@ function entryWeather(abilityId: string): { condition: WeatherCondition; label: 
 }
 
 function entryStageBoost(abilityId: string): { stat: BattleStat; change: number } | undefined {
+  if (abilityId === "hadron-engine") return { stat: "specialAttack", change: 1 };
+  if (abilityId === "guard-dog") return { stat: "attack", change: 1 };
   if (abilityId === "intrepid-sword") return { stat: "attack", change: 1 };
   if (abilityId === "dauntless-shield") return { stat: "defense", change: 1 };
   return undefined;
 }
 
 function preventsIntimidate(ability: BattleAbility | undefined) {
-  return ["inner-focus", "own-tempo", "oblivious", "scrappy", "clear-body", "white-smoke", "full-metal-body", "hyper-cutter"].includes(
+  return ["inner-focus", "own-tempo", "oblivious", "scrappy", "clear-body", "white-smoke", "full-metal-body", "hyper-cutter", "big-pecks", "guard-dog", "mirror-armor"].includes(
     ability?.id ?? "",
   );
 }
@@ -1206,6 +1338,13 @@ function isSoundMove(move: BattleMove) {
   );
 }
 
+function isHealingMove(move: BattleMove) {
+  const name = move.name.toLowerCase();
+  return ["heal", "recover", "roost", "synthesis", "moonlight", "morning-sun", "soft-boiled", "wish", "draining"].some((token) =>
+    name.includes(token),
+  );
+}
+
 function isBallMove(move: BattleMove) {
   const name = move.name.toLowerCase();
   return ["ball", "bomb", "blast", "barrage", "bullet", "seed"].some((token) => name.includes(token));
@@ -1257,7 +1396,8 @@ function modifiedStat(
   weather?: WeatherState,
 ) {
   const base = mon[stat];
-  const stage = stages?.get(mon.name)?.[stat] ?? 0;
+  const rawStage = stages?.get(mon.name)?.[stat] ?? 0;
+  const stage = ability?.id === "simple" ? clamp(rawStage * 2, -6, 6) : rawStage;
   const status = statuses?.get(mon.name)?.condition;
   const paralysisPenalty = stat === "speed" && status === "paralysis" && ability?.id !== "limber" ? 0.55 : 1;
   const marvelScaleBoost = stat === "defense" && Boolean(status) && ability?.id === "marvel-scale" ? 1.35 : 1;
@@ -1275,6 +1415,8 @@ function modifiedStat(
   const defeatistPenalty = ability?.id === "defeatist" && (stat === "attack" || stat === "specialAttack") ? 0.75 : 1;
   const flowerGiftBoost =
     ability?.id === "flower-gift" && weather?.condition === "sun" && (stat === "attack" || stat === "specialDefense") ? 1.35 : 1;
+  const weightAbilityBoost =
+    (ability?.id === "heavy-metal" && stat === "defense") || (ability?.id === "light-metal" && stat === "speed") ? 1.12 : 1;
   return (
     base *
     stageMultiplier(stage) *
@@ -1285,7 +1427,8 @@ function modifiedStat(
     unburdenBoost *
     slowStartPenalty *
     defeatistPenalty *
-    flowerGiftBoost
+    flowerGiftBoost *
+    weightAbilityBoost
   );
 }
 
@@ -1329,6 +1472,20 @@ function chooseBestMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[
           : 0;
     return power * multiplier * stab * accuracy + categoryFit;
   });
+}
+
+function actionPriority(attackerAbility: BattleAbility | undefined, move: BattleMove | undefined, defenderAbility: BattleAbility | undefined) {
+  if (!move) return 0;
+  let priority = 0;
+  if (attackerAbility?.id === "prankster" && move.category === "status") priority += 1;
+  if (attackerAbility?.id === "triage" && isHealingMove(move)) priority += 3;
+  if (attackerAbility?.id === "gale-wings" && move.type === "Flying") priority += 1;
+  if (priority > 0 && blocksPriority(defenderAbility)) return 0;
+  return priority;
+}
+
+function blocksPriority(ability: BattleAbility | undefined) {
+  return ability?.id === "armor-tail" || ability?.id === "dazzling" || ability?.id === "queenly-majesty";
 }
 
 function formatEffectText(multiplier: number) {
