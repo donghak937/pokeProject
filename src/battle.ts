@@ -105,7 +105,7 @@ export function createBattleFeed(
   while (playerActive && enemyActive && turns < 48) {
     turns += 1;
 
-    const enemySwitch = chooseSwitch(enemyActive, playerActive, enemyBench);
+    const enemySwitch = chooseSwitch(enemyActive, playerActive, enemyBench, abilityFor("player", playerActive));
     if (enemySwitch) {
       enemyBench.splice(enemyBench.indexOf(enemySwitch), 1);
       logs.push(...applySwitchOutAbility(enemyActive, hp, statuses, abilityFor("enemy", enemyActive), opponentName));
@@ -125,7 +125,7 @@ export function createBattleFeed(
       );
     }
 
-    const playerSwitch = chooseSwitch(playerActive, enemyActive, playerBench);
+    const playerSwitch = chooseSwitch(playerActive, enemyActive, playerBench, abilityFor("enemy", enemyActive));
     if (playerSwitch) {
       playerBench.splice(playerBench.indexOf(playerSwitch), 1);
       logs.push(...applySwitchOutAbility(playerActive, hp, statuses, abilityFor("player", playerActive), "내 파티"));
@@ -356,8 +356,9 @@ function calculateTeamScore(team: Pokemon[], pairs: PairScore[]) {
   return rawPower * 0.52 + averagePairScore * 0.28 + topPairAverage * 0.2 + diversityBonus - duplicatePenalty;
 }
 
-function chooseSwitch(active: Pokemon, opponent: Pokemon, bench: Pokemon[]) {
+function chooseSwitch(active: Pokemon, opponent: Pokemon, bench: Pokemon[], opponentAbility?: BattleAbility) {
   if (bench.length === 0) return undefined;
+  if (isTrappedByAbility(active, opponentAbility)) return undefined;
   const activeScore = duelScore(active, opponent);
   const replacement = maxBy(bench, (mon) => duelScore(mon, opponent));
   const replacementScore = duelScore(replacement, opponent);
@@ -368,6 +369,19 @@ function chooseSwitch(active: Pokemon, opponent: Pokemon, bench: Pokemon[]) {
   }
 
   return undefined;
+}
+
+function isTrappedByAbility(active: Pokemon, opponentAbility: BattleAbility | undefined) {
+  if (opponentAbility?.id === "shadow-tag") {
+    return !active.types.includes("Ghost");
+  }
+  if (opponentAbility?.id === "arena-trap") {
+    return !active.types.includes("Flying") && active.types.every((type) => type !== "Ghost");
+  }
+  if (opponentAbility?.id === "magnet-pull") {
+    return active.types.includes("Steel");
+  }
+  return false;
 }
 
 function chooseExchangeLoser(
