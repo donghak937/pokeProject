@@ -566,6 +566,7 @@ function App() {
             teamMoves={teamMoves}
             teamAbilities={teamAbilities}
             onUseMove={(move) => setManualBattle((current) => current ? playManualTurn(current, team, teamMoves, teamAbilities, move) : current)}
+            onSwitchPokemon={(pokemonName) => setManualBattle((current) => current ? playManualSwitch(current, team, pokemonName) : current)}
             onRestart={() => setManualBattle(createManualBattle(team, teamMoves, teamAbilities))}
           />
         ) : (
@@ -906,6 +907,7 @@ function ManualBattleView({
   teamMoves,
   teamAbilities,
   onUseMove,
+  onSwitchPokemon,
   onRestart,
 }: {
   battle: ManualBattleState;
@@ -913,17 +915,28 @@ function ManualBattleView({
   teamMoves: MoveSet;
   teamAbilities: Record<string, BattleAbility>;
   onUseMove: (move: BattleMove) => void;
+  onSwitchPokemon: (pokemonName: string) => void;
   onRestart: () => void;
 }) {
   const activePlayer = team.find((mon) => mon.name === battle.playerActive) ?? team[0];
   const activeEnemy = battle.enemy.find((mon) => mon.name === battle.enemyActive) ?? battle.enemy[0];
   const moves = teamMoves[activePlayer.name] ?? [];
+  const switchTargets = team.filter((mon) => mon.name !== battle.playerActive && (battle.playerHp[mon.name] ?? 0) > 0);
   const logRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const node = logRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    const follow = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+    follow();
+    const frame = window.requestAnimationFrame(follow);
+    const timer = window.setTimeout(follow, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [battle.logs.length]);
 
   return (
@@ -959,6 +972,22 @@ function ManualBattleView({
                 <span>{typeLabels[move.type]} · {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"}</span>
               </button>
             ))}
+          </div>
+          <div className="manual-switches" aria-label="교체">
+            <div className="manual-section-heading">
+              <span>교체</span>
+              <strong>{battle.result ? "전투 종료" : "턴 소모"}</strong>
+            </div>
+            <div className="manual-switch-list">
+              {switchTargets.map((mon) => (
+                <button disabled={Boolean(battle.result)} key={mon.name} type="button" onClick={() => onSwitchPokemon(mon.name)}>
+                  <PokemonPortrait pokemon={mon} />
+                  <span>{mon.displayName}</span>
+                  <strong>{Math.round(battle.playerHp[mon.name] ?? 0)}%</strong>
+                </button>
+              ))}
+              {switchTargets.length === 0 && <p>교체 가능한 포켓몬이 없습니다.</p>}
+            </div>
           </div>
           <div className="battle-log manual-log" ref={logRef}>
             {battle.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
@@ -1059,7 +1088,16 @@ function MatchCard({
   React.useEffect(() => {
     const node = logRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    const follow = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+    follow();
+    const frame = window.requestAnimationFrame(follow);
+    const timer = window.setTimeout(follow, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [visibleLogs.length]);
 
   if (match.skipped) {
@@ -1432,6 +1470,57 @@ function playManualTurn(
         next.playerActive = nextPlayer.name;
         next.logs.push(`내 파티, ${nextPlayer.displayName} 등장.`);
       }
+    }
+  }
+
+  return next;
+}
+
+function playManualSwitch(
+  battle: ManualBattleState,
+  team: Pokemon[],
+  targetName: string,
+): ManualBattleState {
+  if (battle.result || targetName === battle.playerActive || (battle.playerHp[targetName] ?? 0) <= 0) return battle;
+
+  const previous = team.find((mon) => mon.name === battle.playerActive);
+  const switched = team.find((mon) => mon.name === targetName);
+  const enemy = battle.enemy.find((mon) => mon.name === battle.enemyActive);
+  if (!switched || !enemy) return battle;
+
+  const enemyMove = chooseManualMove(enemy, switched, battle.enemyMoves[enemy.name] ?? []);
+  const next: ManualBattleState = {
+    ...battle,
+    playerHp: { ...battle.playerHp },
+    enemyHp: { ...battle.enemyHp },
+    playerActive: switched.name,
+    logs: [
+      ...battle.logs,
+      `내 파티, ${previous?.displayName ?? "대기"}에서 ${switched.displayName} 교체.`,
+      `상대 ${enemy.displayName}의 ${enemyMove.displayName}!`,
+    ],
+  };
+
+  const defenderHp = next.playerHp[switched.name] ?? 0;
+  const result = manualMoveDamage(enemy, switched, enemyMove);
+  if (result.missed) {
+    next.logs.push(`하지만 빗나갔다.`);
+    return next;
+  }
+
+  const remaining = Math.max(0, Math.round(defenderHp - result.damage));
+  next.playerHp[switched.name] = remaining;
+  next.logs.push(`${manualEffectText(result.multiplier)}${switched.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+
+  if (remaining <= 0) {
+    next.logs.push(`${switched.displayName} 다운!`);
+    const nextPlayer = nextAlive(team, next.playerHp);
+    if (!nextPlayer) {
+      next.result = "lose";
+      next.logs.push(`패배... 내 포켓몬 전원 다운.`);
+    } else {
+      next.playerActive = nextPlayer.name;
+      next.logs.push(`내 파티, ${nextPlayer.displayName} 등장.`);
     }
   }
 
