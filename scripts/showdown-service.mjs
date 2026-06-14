@@ -2,8 +2,22 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createShowdownBattle, waitForChunks } from "./showdown-adapter.mjs";
 
-const port = Number.parseInt(process.env.SHOWDOWN_PORT ?? "8787", 10);
+const port = Number.parseInt(process.env.PORT ?? process.env.SHOWDOWN_PORT ?? "8787", 10);
+const host = process.env.HOST ?? "0.0.0.0";
+const maxBodyBytes = 1_000_000;
+const battleTtlMs = 1000 * 60 * 60;
 const battles = new Map();
+
+function now() {
+  return Date.now();
+}
+
+function pruneBattles() {
+  const cutoff = now() - battleTtlMs;
+  for (const [battleId, battle] of battles.entries()) {
+    if (battle.updatedAt < cutoff) battles.delete(battleId);
+  }
+}
 
 function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -19,6 +33,11 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
     req.on("data", (chunk) => {
+      if (body.length + chunk.length > maxBodyBytes) {
+        reject(new Error("request body too large"));
+        req.destroy();
+        return;
+      }
       body += chunk;
     });
     req.on("end", () => {
@@ -41,10 +60,15 @@ function assertTeams(body) {
   if (!Array.isArray(body.team) || !Array.isArray(body.enemy)) {
     throw new Error("team and enemy arrays are required");
   }
+  if (body.team.length > 6 || body.enemy.length > 6) {
+    throw new Error("team and enemy must have at most 6 Pokemon");
+  }
 }
 
 const server = createServer(async (req, res) => {
   try {
+    pruneBattles();
+
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
       return;
@@ -53,7 +77,16 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     if (req.method === "GET" && url.pathname === "/health") {
-      sendJson(res, 200, { ok: true, battles: battles.size });
+      sendJson(res, 200, { ok: true, battles: battles.size, engine: "pokemon-showdown" });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/") {
+      sendJson(res, 200, {
+        ok: true,
+        name: "PokeProject Showdown API",
+        routes: ["GET /health", "POST /battle/start", "GET /battle/:id", "POST /battle/:id/choose"],
+      });
       return;
     }
 
@@ -63,7 +96,7 @@ const server = createServer(async (req, res) => {
 
       const battleId = randomUUID();
       const battle = createShowdownBattle(body);
-      battles.set(battleId, battle);
+      battles.set(battleId, { battle, createdAt: now(), updatedAt: now() });
 
       battle.write(">p1 team 123456");
       battle.write(">p2 team 123456");
@@ -73,10 +106,23 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    const stateMatch = url.pathname.match(/^\/battle\/([^/]+)$/);
+    if (req.method === "GET" && stateMatch) {
+      const entry = battles.get(stateMatch[1]);
+      if (!entry) {
+        sendJson(res, 404, { error: "battle not found" });
+        return;
+      }
+
+      entry.updatedAt = now();
+      sendJson(res, 200, { battleId: stateMatch[1], chunks: entry.battle.snapshot() });
+      return;
+    }
+
     const choiceMatch = url.pathname.match(/^\/battle\/([^/]+)\/choose$/);
     if (req.method === "POST" && choiceMatch) {
-      const battle = battles.get(choiceMatch[1]);
-      if (!battle) {
+      const entry = battles.get(choiceMatch[1]);
+      if (!entry) {
         sendJson(res, 404, { error: "battle not found" });
         return;
       }
@@ -87,9 +133,15 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      battle.write(`>${body.side} ${body.choice}`);
+      if (body.side !== "p1" && body.side !== "p2") {
+        sendJson(res, 400, { error: "side must be p1 or p2" });
+        return;
+      }
+
+      entry.battle.write(`>${body.side} ${body.choice}`);
       await waitForChunks(100);
-      sendJson(res, 200, { battleId: choiceMatch[1], chunks: battle.snapshot() });
+      entry.updatedAt = now();
+      sendJson(res, 200, { battleId: choiceMatch[1], chunks: entry.battle.snapshot() });
       return;
     }
 
@@ -99,6 +151,6 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Pokemon Showdown service listening on http://127.0.0.1:${port}`);
+server.listen(port, host, () => {
+  console.log(`Pokemon Showdown service listening on http://${host}:${port}`);
 });
