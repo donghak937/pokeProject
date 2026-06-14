@@ -33,6 +33,7 @@ type ManualBattleState = {
   enemyHp: Record<string, number>;
   playerActive: string;
   enemyActive: string;
+  recharging: Record<string, boolean>;
   logs: string[];
   result?: "win" | "lose";
 };
@@ -1399,6 +1400,7 @@ function createManualBattle(
     enemyHp: Object.fromEntries(enemy.map((mon) => [mon.name, initialManualHp(mon)])),
     playerActive: team[0]?.name ?? "",
     enemyActive: enemy[0]?.name ?? "",
+    recharging: {},
     logs: [
       `직접 전투 시작! 내 선봉 ${team[0]?.displayName ?? "대기"}, 상대 선봉 ${enemy[0]?.displayName ?? "대기"}.`,
       `내 포켓몬을 직접 조작합니다. 기술을 선택하세요.`,
@@ -1428,6 +1430,7 @@ function playManualTurn(
     ...battle,
     playerHp: { ...battle.playerHp },
     enemyHp: { ...battle.enemyHp },
+    recharging: { ...battle.recharging },
     logs: [...battle.logs, `턴 시작: ${player.displayName}의 ${playerMove.displayName} / ${enemy.displayName}의 ${enemyMove.displayName}`],
   };
 
@@ -1443,6 +1446,12 @@ function playManualTurn(
     const defenderHp = side === "player" ? next.enemyHp[defender.name] ?? 0 : next.playerHp[defender.name] ?? 0;
     if (attackerHp <= 0 || defenderHp <= 0) continue;
 
+    if (next.recharging[attacker.name]) {
+      delete next.recharging[attacker.name];
+      next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 반동으로 움직일 수 없다. 재충전 중!`);
+      continue;
+    }
+
     const defenderAbility = side === "player" ? battle.enemyAbilities[defender.name] : playerAbilities[defender.name];
     const result = manualMoveDamage(attacker, defender, move, defenderAbility);
     if (result.missed) {
@@ -1457,6 +1466,10 @@ function playManualTurn(
     if (side === "player") next.enemyHp[defender.name] = remaining;
     else next.playerHp[defender.name] = remaining;
     next.logs.push(`${attacker.displayName}의 ${move.displayName}! ${manualEffectText(result.multiplier)}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+    if (isRechargeMove(move)) {
+      next.recharging[attacker.name] = true;
+      next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 다음 턴 재충전해야 한다.`);
+    }
 
     if (remaining <= 0) {
       next.logs.push(`${defender.displayName} 다운!`);
@@ -1497,12 +1510,19 @@ function playManualSwitch(
   const switched = team.find((mon) => mon.name === targetName);
   const enemy = battle.enemy.find((mon) => mon.name === battle.enemyActive);
   if (!switched || !enemy) return battle;
+  if (previous && battle.recharging[previous.name]) {
+    return {
+      ...battle,
+      logs: [...battle.logs, `${previous.displayName}${subjectParticle(previous.displayName)} 재충전 중이라 교체할 수 없다. 기술을 선택하면 이번 턴을 쉰다.`],
+    };
+  }
 
   const enemyMove = chooseManualMove(enemy, switched, battle.enemyMoves[enemy.name] ?? []);
   const next: ManualBattleState = {
     ...battle,
     playerHp: { ...battle.playerHp },
     enemyHp: { ...battle.enemyHp },
+    recharging: { ...battle.recharging },
     playerActive: switched.name,
     logs: [
       ...battle.logs,
@@ -1567,6 +1587,12 @@ function manualMoveScore(attacker: Pokemon, defender: Pokemon, move: BattleMove)
   const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
   const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
   return move.power * manualTypeMultiplier(move.type, defender.types) * ((move.accuracy ?? 100) / 100) * (attack / Math.max(35, defense));
+}
+
+function isRechargeMove(move: BattleMove) {
+  return ["blast-burn", "eternabeam", "frenzy-plant", "giga-impact", "hydro-cannon", "hyper-beam", "meteor-assault", "prismatic-laser", "roar-of-time", "rock-wrecker"].includes(
+    move.name.toLowerCase(),
+  );
 }
 
 function manualTypeMultiplier(attackType: Pokemon["types"][number], defenderTypes: Pokemon["types"]) {
@@ -1692,6 +1718,13 @@ function withBattleParticle(label: string) {
   const code = last.charCodeAt(0);
   const hasFinalConsonant = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
   return `${label}${hasFinalConsonant ? "과" : "와"}`;
+}
+
+function subjectParticle(label: string) {
+  const last = label[label.length - 1];
+  const code = last.charCodeAt(0);
+  const hasFinalConsonant = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return hasFinalConsonant ? "은" : "는";
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
