@@ -65,6 +65,54 @@ function assertTeams(body) {
   }
 }
 
+function latestRequest(chunks, side) {
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    const lines = chunks[index].split("\n");
+    if (lines[0] !== "sideupdate" || lines[1] !== side) continue;
+
+    const requestLine = lines.find((line) => line.startsWith("|request|"));
+    if (!requestLine) continue;
+
+    try {
+      return JSON.parse(requestLine.slice("|request|".length));
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function firstAvailableSwitch(request) {
+  const pokemon = request?.side?.pokemon ?? [];
+  const switchIndex = pokemon.findIndex((mon) => !mon.active && !String(mon.condition ?? "").includes("fnt"));
+  return switchIndex >= 0 ? `switch ${switchIndex + 1}` : undefined;
+}
+
+function firstLegalChoice(request) {
+  if (!request) return undefined;
+  if (request.wait) return undefined;
+  if (request.forceSwitch?.[0]) return firstAvailableSwitch(request);
+
+  const active = request.active?.[0];
+  if (!active) return undefined;
+
+  const moveIndex = active.moves?.findIndex((move) => !move.disabled);
+  if (moveIndex >= 0) return `move ${moveIndex + 1}`;
+  return firstAvailableSwitch(request);
+}
+
+async function applyAutoChoice(entry, side) {
+  const request = latestRequest(entry.battle.snapshot(), side);
+  const choice = firstLegalChoice(request);
+  if (!choice) return undefined;
+
+  entry.battle.write(`>${side} ${choice}`);
+  await waitForChunks(100);
+  entry.updatedAt = now();
+  return choice;
+}
+
 const server = createServer(async (req, res) => {
   try {
     pruneBattles();
@@ -85,7 +133,7 @@ const server = createServer(async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         name: "PokeProject Showdown API",
-        routes: ["GET /health", "POST /battle/start", "GET /battle/:id", "POST /battle/:id/choose"],
+        routes: ["GET /health", "POST /battle/start", "GET /battle/:id", "POST /battle/:id/choose", "POST /battle/:id/player-action"],
       });
       return;
     }
@@ -142,6 +190,28 @@ const server = createServer(async (req, res) => {
       await waitForChunks(100);
       entry.updatedAt = now();
       sendJson(res, 200, { battleId: choiceMatch[1], chunks: entry.battle.snapshot() });
+      return;
+    }
+
+    const playerActionMatch = url.pathname.match(/^\/battle\/([^/]+)\/player-action$/);
+    if (req.method === "POST" && playerActionMatch) {
+      const entry = battles.get(playerActionMatch[1]);
+      if (!entry) {
+        sendJson(res, 404, { error: "battle not found" });
+        return;
+      }
+
+      const body = await readBody(req);
+      if (typeof body.choice !== "string") {
+        sendJson(res, 400, { error: "choice is required" });
+        return;
+      }
+
+      entry.battle.write(`>p1 ${body.choice}`);
+      await waitForChunks(100);
+      const enemyChoice = await applyAutoChoice(entry, "p2");
+      await applyAutoChoice(entry, "p1");
+      sendJson(res, 200, { battleId: playerActionMatch[1], enemyChoice, chunks: entry.battle.snapshot() });
       return;
     }
 

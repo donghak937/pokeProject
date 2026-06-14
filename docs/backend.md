@@ -47,6 +47,18 @@ POST /battle/:id/choose
 
 Choices follow Pokemon Showdown syntax, for example `move 1`, `move 2`, `switch 2`.
 
+The frontend direct battle mode should normally use this endpoint instead:
+
+```http
+POST /battle/:id/player-action
+
+{
+  "choice": "move 1"
+}
+```
+
+`player-action` applies the player choice as `p1`, then makes the opponent choose a legal action automatically.
+
 ## Render Deploy
 
 1. Push this repository to GitHub.

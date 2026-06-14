@@ -49,8 +49,7 @@ try {
     enemy: pickTeam(["Machamp", "Raichu", "Venusaur", "Blastoise", "Golem", "Alakazam"]),
     seed: [1, 2, 3, 4],
   });
-  await postJson(`/battle/${start.battleId}/choose`, { side: "p1", choice: "move 1" });
-  const turn = await postJson(`/battle/${start.battleId}/choose`, { side: "p2", choice: "move 1" });
+  const turn = await postJson(`/battle/${start.battleId}/player-action`, { choice: "move 1" });
 
   console.log(
     JSON.stringify(

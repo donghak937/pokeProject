@@ -859,6 +859,17 @@ h2 {
   font-size: 0.86rem;
 }
 
+.manual-status {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.manual-status.error {
+  color: var(--bad);
+}
+
 .hp-bar {
   height: 9px;
   overflow: hidden;
