@@ -1420,6 +1420,8 @@ function playManualTurn(
   if (!player || !enemy) return battle;
 
   const enemyMove = chooseManualMove(enemy, player, battle.enemyMoves[enemy.name] ?? []);
+  const turnPlayerName = player.name;
+  const turnEnemyName = enemy.name;
   const firstSide = player.speed >= enemy.speed ? "player" : "enemy";
   const order = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
   const next: ManualBattleState = {
@@ -1431,7 +1433,9 @@ function playManualTurn(
 
   for (const side of order) {
     if (next.result) break;
-    const attacker = side === "player" ? team.find((mon) => mon.name === next.playerActive) : battle.enemy.find((mon) => mon.name === next.enemyActive);
+    if (side === "player" && next.playerActive !== turnPlayerName) continue;
+    if (side === "enemy" && next.enemyActive !== turnEnemyName) continue;
+    const attacker = side === "player" ? team.find((mon) => mon.name === turnPlayerName) : battle.enemy.find((mon) => mon.name === turnEnemyName);
     const defender = side === "player" ? battle.enemy.find((mon) => mon.name === next.enemyActive) : team.find((mon) => mon.name === next.playerActive);
     const move = side === "player" ? playerMove : enemyMove;
     if (!attacker || !defender) continue;
