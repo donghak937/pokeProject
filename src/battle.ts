@@ -1576,7 +1576,7 @@ function formatMultiplier(multiplier: number) {
   return "보통";
 }
 
-const typeChart: Record<TypeName, Partial<Record<TypeName, number>>> = {
+export const typeChart: Record<TypeName, Partial<Record<TypeName, number>>> = {
   Normal: { Rock: 0.5, Ghost: 0, Steel: 0.5 },
   Fire: { Grass: 2, Ice: 2, Bug: 2, Steel: 2, Fire: 0.5, Water: 0.5, Rock: 0.5, Dragon: 0.5 },
   Water: { Fire: 2, Ground: 2, Rock: 2, Water: 0.5, Grass: 0.5, Dragon: 0.5 },

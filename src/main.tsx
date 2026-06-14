@@ -2,7 +2,7 @@
 import ReactDOM from "react-dom/client";
 import { RotateCcw, Swords } from "lucide-react";
 import "./styles.css";
-import { calculateWinProjection, createBattleFeed, type MoveSet } from "./battle";
+import { calculateWinProjection, createBattleFeed, typeChart, type MoveSet } from "./battle";
 import { championLeagues, type LeagueOpponent } from "./leagues";
 import {
   buildChoices,
@@ -22,9 +22,20 @@ import {
 } from "./model";
 
 const rounds = ["16강", "8강", "4강", "결승"] as const;
-type GameMode = "random" | "champions";
+type GameMode = "random" | "champions" | "manual";
 const logSpeeds = [0.5, 0.75, 1, 1.5, 2] as const;
 type LogSpeed = (typeof logSpeeds)[number];
+type ManualBattleState = {
+  enemy: Pokemon[];
+  enemyMoves: MoveSet;
+  enemyAbilities: Record<string, BattleAbility>;
+  playerHp: Record<string, number>;
+  enemyHp: Record<string, number>;
+  playerActive: string;
+  enemyActive: string;
+  logs: string[];
+  result?: "win" | "lose";
+};
 const implementedAbilityIds = new Set([
   "adaptability",
   "aftermath",
@@ -296,6 +307,7 @@ function App() {
   const [choiceAbilities, setChoiceAbilities] = React.useState<Record<string, BattleAbility>>({});
   const [selectedMovePokemon, setSelectedMovePokemon] = React.useState<string | null>(null);
   const [inspectingChoice, setInspectingChoice] = React.useState<Pokemon | null>(null);
+  const [manualBattle, setManualBattle] = React.useState<ManualBattleState | null>(null);
   const [logSpeed, setLogSpeed] = React.useState<LogSpeed>(1);
   const [sameGenRerolls, setSameGenRerolls] = React.useState(2);
   const [wildRerolls, setWildRerolls] = React.useState(2);
@@ -310,7 +322,7 @@ function App() {
   );
   const isRevealed = runEnded;
   const champion = runEnded && Boolean(activeMatch && !activeMatch.skipped && activeMatch.win);
-  const modeLabel = mode === "random" ? "랜덤 토너먼트" : "포챔스";
+  const modeLabel = mode === "random" ? "랜덤 토너먼트" : mode === "champions" ? "포챔스" : "직접 전투";
   const regionLabel =
     mode === "champions" && activeMatch && !activeMatch.skipped
       ? activeMatch.revealRegion
@@ -342,6 +354,7 @@ function App() {
     const nextChoices = buildChoices(nextRule, []);
     setTeam([]);
     setMatches([]);
+    setManualBattle(null);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
@@ -385,12 +398,22 @@ function App() {
   }
 
   function simulateAgain() {
+    if (mode === "manual") {
+      setManualBattle(createManualBattle(team, teamMoves, teamAbilities));
+      setMatches([]);
+      return;
+    }
     setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
   }
 
   function startBattle() {
+    if (mode === "manual") {
+      setManualBattle(createManualBattle(team, teamMoves, teamAbilities));
+      setMatches([]);
+      return;
+    }
     setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
@@ -402,6 +425,7 @@ function App() {
     const nextChoices = buildChoices(nextRule, []);
     setTeam([]);
     setMatches([]);
+    setManualBattle(null);
     setActiveMatchIndex(0);
     setVisibleLogCount(1);
     setTeamMoves({});
@@ -457,6 +481,9 @@ function App() {
           <button className={mode === "champions" ? "active" : ""} type="button" onClick={() => changeMode("champions")}>
             포챔스
           </button>
+          <button className={mode === "manual" ? "active" : ""} type="button" onClick={() => changeMode("manual")}>
+            직접 전투
+          </button>
         </div>
         <div className="status-strip">
           <Status label="선택" value={isDrafting ? `${pickNumber} / 6` : "완성"} />
@@ -470,8 +497,8 @@ function App() {
         </div>
       </section>
 
-      <section className={matches.length > 0 ? "board battle-board" : "board"}>
-        {matches.length === 0 && (
+      <section className={matches.length > 0 || manualBattle ? "board battle-board" : "board"}>
+        {matches.length === 0 && !manualBattle && (
           <aside className="team-panel" aria-label="내 파티">
             <div className="panel-heading">
               <h2>내 파티</h2>
@@ -486,7 +513,7 @@ function App() {
           </aside>
         )}
 
-        {matches.length === 0 ? (
+        {matches.length === 0 && !manualBattle ? (
           <section className="draft-panel">
             <div className="draft-heading">
               <div>
@@ -532,6 +559,15 @@ function App() {
               />
             )}
           </section>
+        ) : manualBattle ? (
+          <ManualBattleView
+            battle={manualBattle}
+            team={team}
+            teamMoves={teamMoves}
+            teamAbilities={teamAbilities}
+            onUseMove={(move) => setManualBattle((current) => current ? playManualTurn(current, team, teamMoves, teamAbilities, move) : current)}
+            onRestart={() => setManualBattle(createManualBattle(team, teamMoves, teamAbilities))}
+          />
         ) : (
           <section className="tournament" aria-label="도전 결과">
             <div className="tournament-heading">
@@ -864,6 +900,143 @@ function BattleProgress({ matches, activeIndex }: { matches: MatchResult[]; acti
   );
 }
 
+function ManualBattleView({
+  battle,
+  team,
+  teamMoves,
+  teamAbilities,
+  onUseMove,
+  onRestart,
+}: {
+  battle: ManualBattleState;
+  team: Pokemon[];
+  teamMoves: MoveSet;
+  teamAbilities: Record<string, BattleAbility>;
+  onUseMove: (move: BattleMove) => void;
+  onRestart: () => void;
+}) {
+  const activePlayer = team.find((mon) => mon.name === battle.playerActive) ?? team[0];
+  const activeEnemy = battle.enemy.find((mon) => mon.name === battle.enemyActive) ?? battle.enemy[0];
+  const moves = teamMoves[activePlayer.name] ?? [];
+  const logRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const node = logRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [battle.logs.length]);
+
+  return (
+    <section className="tournament manual-battle" aria-label="직접 전투">
+      <div className="tournament-heading">
+        <div>
+          <p className="eyebrow">직접 전투</p>
+          <h2>{battle.result ? (battle.result === "win" ? "승리" : "패배") : `${activePlayer.displayName} vs ${activeEnemy.displayName}`}</h2>
+        </div>
+        <button className="primary-action" type="button" onClick={onRestart}>
+          <Swords size={18} />
+          다시 전투
+        </button>
+      </div>
+      <div className="manual-stage">
+        <ManualSide title="내 파티" pokemon={team} hp={battle.playerHp} activeName={battle.playerActive} abilitySet={teamAbilities} />
+        <div className="manual-console">
+          <div className="manual-duel">
+            <ManualActiveCard pokemon={activePlayer} hp={battle.playerHp[activePlayer.name] ?? 0} ability={teamAbilities[activePlayer.name]} />
+            <ManualActiveCard pokemon={activeEnemy} hp={battle.enemyHp[activeEnemy.name] ?? 0} ability={battle.enemyAbilities[activeEnemy.name]} align="right" />
+          </div>
+          <div className="manual-actions">
+            {moves.map((move) => (
+              <button
+                className="manual-move"
+                disabled={Boolean(battle.result)}
+                key={move.name}
+                style={{ "--move": typeColors[move.type] } as React.CSSProperties}
+                type="button"
+                onClick={() => onUseMove(move)}
+              >
+                <strong>{move.displayName}</strong>
+                <span>{typeLabels[move.type]} · {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"}</span>
+              </button>
+            ))}
+          </div>
+          <div className="battle-log manual-log" ref={logRef}>
+            {battle.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+          </div>
+        </div>
+        <ManualSide title="상대 파티" pokemon={battle.enemy} hp={battle.enemyHp} activeName={battle.enemyActive} abilitySet={battle.enemyAbilities} align="right" />
+      </div>
+    </section>
+  );
+}
+
+function ManualActiveCard({
+  pokemon: mon,
+  hp,
+  ability,
+  align = "left",
+}: {
+  pokemon: Pokemon;
+  hp: number;
+  ability?: BattleAbility;
+  align?: "left" | "right";
+}) {
+  return (
+    <article className={`manual-active ${align === "right" ? "right" : ""}`}>
+      <PokemonPortrait pokemon={mon} large />
+      <div>
+        <h3>{mon.displayName}</h3>
+        <p>{mon.types.map((type) => typeLabels[type]).join(" / ")}</p>
+        <div className="hp-bar"><span style={{ width: `${clampNumber(hp, 0, 100)}%` }} /></div>
+        <strong>HP {Math.max(0, Math.round(hp))}%</strong>
+        {ability && <small>{ability.name}</small>}
+      </div>
+    </article>
+  );
+}
+
+function ManualSide({
+  title,
+  pokemon,
+  hp,
+  activeName,
+  abilitySet,
+  align = "left",
+}: {
+  title: string;
+  pokemon: Pokemon[];
+  hp: Record<string, number>;
+  activeName: string;
+  abilitySet: Record<string, BattleAbility>;
+  align?: "left" | "right";
+}) {
+  return (
+    <div className={`battle-roster manual-side ${align === "right" ? "right" : ""}`}>
+      <div className="roster-heading">
+        <h4>{title}</h4>
+        <span>HP</span>
+      </div>
+      <div className="roster-list">
+        {pokemon.slice(0, 6).map((mon) => {
+          const currentHp = hp[mon.name] ?? 0;
+          const isDown = currentHp <= 0;
+          const isActive = activeName === mon.name && !isDown;
+          return (
+            <article className={`roster-mon ${isActive ? "active" : ""} ${isDown ? "down" : ""}`} key={mon.name}>
+              <PokemonPortrait pokemon={mon} />
+              <div>
+                <h5>{mon.displayName}</h5>
+                <p>{abilitySet[mon.name]?.name ?? mon.types.map((type) => typeLabels[type]).join(" / ")}</p>
+              </div>
+              <span className="state-badge">{isDown ? "다운" : `${Math.round(currentHp)}%`}</span>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MatchCard({
   match,
   team,
@@ -1170,6 +1343,143 @@ function simulateOpponent(
     leagueRegion: options.leagueRegion,
     revealRegion: options.revealRegion,
   };
+}
+
+function createManualBattle(
+  team: Pokemon[],
+  playerMoves: MoveSet,
+  playerAbilities: Record<string, BattleAbility>,
+): ManualBattleState {
+  const enemy = buildEnemyTeam(0).slice(0, 6);
+  const enemyMoves = buildMoveSet(enemy);
+  const enemyAbilities = buildAbilitySet(enemy);
+  return {
+    enemy,
+    enemyMoves,
+    enemyAbilities,
+    playerHp: Object.fromEntries(team.map((mon) => [mon.name, 100])),
+    enemyHp: Object.fromEntries(enemy.map((mon) => [mon.name, 100])),
+    playerActive: team[0]?.name ?? "",
+    enemyActive: enemy[0]?.name ?? "",
+    logs: [
+      `직접 전투 시작! 내 선봉 ${team[0]?.displayName ?? "대기"}, 상대 선봉 ${enemy[0]?.displayName ?? "대기"}.`,
+      `내 포켓몬을 직접 조작합니다. 기술을 선택하세요.`,
+    ],
+  };
+}
+
+function playManualTurn(
+  battle: ManualBattleState,
+  team: Pokemon[],
+  playerMoves: MoveSet,
+  playerAbilities: Record<string, BattleAbility>,
+  playerMove: BattleMove,
+): ManualBattleState {
+  if (battle.result) return battle;
+
+  const player = team.find((mon) => mon.name === battle.playerActive);
+  const enemy = battle.enemy.find((mon) => mon.name === battle.enemyActive);
+  if (!player || !enemy) return battle;
+
+  const enemyMove = chooseManualMove(enemy, player, battle.enemyMoves[enemy.name] ?? []);
+  const firstSide = player.speed >= enemy.speed ? "player" : "enemy";
+  const order = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
+  const next: ManualBattleState = {
+    ...battle,
+    playerHp: { ...battle.playerHp },
+    enemyHp: { ...battle.enemyHp },
+    logs: [...battle.logs, `턴 시작: ${player.displayName}의 ${playerMove.displayName} / ${enemy.displayName}의 ${enemyMove.displayName}`],
+  };
+
+  for (const side of order) {
+    if (next.result) break;
+    const attacker = side === "player" ? team.find((mon) => mon.name === next.playerActive) : battle.enemy.find((mon) => mon.name === next.enemyActive);
+    const defender = side === "player" ? battle.enemy.find((mon) => mon.name === next.enemyActive) : team.find((mon) => mon.name === next.playerActive);
+    const move = side === "player" ? playerMove : enemyMove;
+    if (!attacker || !defender) continue;
+    const attackerHp = side === "player" ? next.playerHp[attacker.name] ?? 0 : next.enemyHp[attacker.name] ?? 0;
+    const defenderHp = side === "player" ? next.enemyHp[defender.name] ?? 0 : next.playerHp[defender.name] ?? 0;
+    if (attackerHp <= 0 || defenderHp <= 0) continue;
+
+    const result = manualMoveDamage(attacker, defender, move);
+    if (result.missed) {
+      next.logs.push(`${attacker.displayName}의 ${move.displayName}! 빗나갔다.`);
+      continue;
+    }
+    const remaining = Math.max(0, Math.round(defenderHp - result.damage));
+    if (side === "player") next.enemyHp[defender.name] = remaining;
+    else next.playerHp[defender.name] = remaining;
+    next.logs.push(`${attacker.displayName}의 ${move.displayName}! ${manualEffectText(result.multiplier)}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+
+    if (remaining <= 0) {
+      next.logs.push(`${defender.displayName} 다운!`);
+      if (side === "player") {
+        const nextEnemy = nextAlive(battle.enemy, next.enemyHp);
+        if (!nextEnemy) {
+          next.result = "win";
+          next.logs.push(`승리! 상대 포켓몬 전원 다운.`);
+          break;
+        }
+        next.enemyActive = nextEnemy.name;
+        next.logs.push(`상대, ${nextEnemy.displayName} 등장.`);
+      } else {
+        const nextPlayer = nextAlive(team, next.playerHp);
+        if (!nextPlayer) {
+          next.result = "lose";
+          next.logs.push(`패배... 내 포켓몬 전원 다운.`);
+          break;
+        }
+        next.playerActive = nextPlayer.name;
+        next.logs.push(`내 파티, ${nextPlayer.displayName} 등장.`);
+      }
+    }
+  }
+
+  return next;
+}
+
+function chooseManualMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[]) {
+  const candidates = moves.length > 0 ? moves : attacker.movePool.slice(0, 4);
+  return candidates.reduce((best, move) => manualMoveScore(attacker, defender, move) > manualMoveScore(attacker, defender, best) ? move : best);
+}
+
+function manualMoveDamage(attacker: Pokemon, defender: Pokemon, move: BattleMove) {
+  const accuracy = (move.accuracy ?? 100) / 100;
+  if (Math.random() > accuracy) return { damage: 0, multiplier: 1, missed: true };
+  if (move.category === "status" || !move.power) return { damage: 0, multiplier: 1, missed: false };
+  const multiplier = manualTypeMultiplier(move.type, defender.types);
+  const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
+  const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
+  const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+  const random = 0.88 + Math.random() * 0.16;
+  const raw = ((move.power * (attack / Math.max(35, defense)) * stab * multiplier) / Math.max(40, defender.hp)) * 18;
+  return { damage: clampNumber(Math.round(raw * random), multiplier === 0 ? 0 : 3, multiplier >= 2 ? 78 : 58), multiplier, missed: false };
+}
+
+function manualMoveScore(attacker: Pokemon, defender: Pokemon, move: BattleMove) {
+  if (move.category === "status" || !move.power) return 8;
+  const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
+  const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
+  return move.power * manualTypeMultiplier(move.type, defender.types) * ((move.accuracy ?? 100) / 100) * (attack / Math.max(35, defense));
+}
+
+function manualTypeMultiplier(attackType: Pokemon["types"][number], defenderTypes: Pokemon["types"]) {
+  return defenderTypes.reduce((total, defenseType) => total * (typeChart[attackType]?.[defenseType] ?? 1), 1);
+}
+
+function manualEffectText(multiplier: number) {
+  if (multiplier === 0) return "효과가 없었다... ";
+  if (multiplier >= 2) return "효과가 굉장했다! ";
+  if (multiplier < 1) return "효과가 별로였다. ";
+  return "";
+}
+
+function nextAlive(team: Pokemon[], hp: Record<string, number>) {
+  return team.find((mon) => (hp[mon.name] ?? 0) > 0);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function randomItem<T>(items: T[]) {
