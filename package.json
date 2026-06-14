@@ -12,6 +12,8 @@
     "data:abilities": "node scripts/patch-pokemon-abilities.mjs",
     "data:all": "npm run data:generate && npm run data:moves && npm run data:abilities",
     "sprites:extract": "powershell -ExecutionPolicy Bypass -File scripts/extract-pokerogue-sprites.ps1",
+    "showdown:smoke": "node scripts/showdown-smoke.mjs",
+    "showdown:service": "node scripts/showdown-service.mjs",
     "preview": "vite preview"
   },
   "keywords": [],
@@ -20,6 +22,7 @@
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",
     "lucide-react": "^1.17.0",
+    "pokemon-showdown": "^0.11.10",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
