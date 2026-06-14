@@ -68,7 +68,7 @@ type ManualBattleState = {
   error?: string;
   result?: "win" | "lose";
 };
-const showdownApiBase = (import.meta.env.VITE_SHOWDOWN_API_URL ?? "http://localhost:8787").replace(/\/$/, "");
+const showdownApiBase = (import.meta.env.VITE_SHOWDOWN_API_URL ?? "/api").replace(/\/$/, "");
 const implementedAbilityIds = new Set([
   "adaptability",
   "aftermath",
