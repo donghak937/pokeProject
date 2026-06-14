@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node scripts/showdown-service.mjs",
     "dev": "vite",
+    "dev:server": "node scripts/dev-server.mjs",
     "backend:dev": "node scripts/showdown-service.mjs",
     "build": "tsc -b && vite build",
     "data:generate": "node scripts/generate-pokemon-data.mjs",
