@@ -566,7 +566,7 @@ function App() {
             teamMoves={teamMoves}
             teamAbilities={teamAbilities}
             onUseMove={(move) => setManualBattle((current) => current ? playManualTurn(current, team, teamMoves, teamAbilities, move) : current)}
-            onSwitchPokemon={(pokemonName) => setManualBattle((current) => current ? playManualSwitch(current, team, pokemonName) : current)}
+            onSwitchPokemon={(pokemonName) => setManualBattle((current) => current ? playManualSwitch(current, team, teamAbilities, pokemonName) : current)}
             onRestart={() => setManualBattle(createManualBattle(team, teamMoves, teamAbilities))}
           />
         ) : (
@@ -1443,9 +1443,14 @@ function playManualTurn(
     const defenderHp = side === "player" ? next.enemyHp[defender.name] ?? 0 : next.playerHp[defender.name] ?? 0;
     if (attackerHp <= 0 || defenderHp <= 0) continue;
 
-    const result = manualMoveDamage(attacker, defender, move);
+    const defenderAbility = side === "player" ? battle.enemyAbilities[defender.name] : playerAbilities[defender.name];
+    const result = manualMoveDamage(attacker, defender, move, defenderAbility);
     if (result.missed) {
       next.logs.push(`${attacker.displayName}의 ${move.displayName}! 빗나갔다.`);
+      continue;
+    }
+    if (result.blockedByAbility) {
+      next.logs.push(`${defender.displayName}의 ${result.blockedByAbility}! 효과가 뛰어난 기술만 통한다.`);
       continue;
     }
     const remaining = Math.max(0, Math.round(defenderHp - result.damage));
@@ -1483,6 +1488,7 @@ function playManualTurn(
 function playManualSwitch(
   battle: ManualBattleState,
   team: Pokemon[],
+  playerAbilities: Record<string, BattleAbility>,
   targetName: string,
 ): ManualBattleState {
   if (battle.result || targetName === battle.playerActive || (battle.playerHp[targetName] ?? 0) <= 0) return battle;
@@ -1506,9 +1512,13 @@ function playManualSwitch(
   };
 
   const defenderHp = next.playerHp[switched.name] ?? 0;
-  const result = manualMoveDamage(enemy, switched, enemyMove);
+  const result = manualMoveDamage(enemy, switched, enemyMove, playerAbilities[switched.name]);
   if (result.missed) {
     next.logs.push(`하지만 빗나갔다.`);
+    return next;
+  }
+  if (result.blockedByAbility) {
+    next.logs.push(`${switched.displayName}의 ${result.blockedByAbility}! 효과가 뛰어난 기술만 통한다.`);
     return next;
   }
 
@@ -1536,11 +1546,14 @@ function chooseManualMove(attacker: Pokemon, defender: Pokemon, moves: BattleMov
   return candidates.reduce((best, move) => manualMoveScore(attacker, defender, move) > manualMoveScore(attacker, defender, best) ? move : best);
 }
 
-function manualMoveDamage(attacker: Pokemon, defender: Pokemon, move: BattleMove) {
+function manualMoveDamage(attacker: Pokemon, defender: Pokemon, move: BattleMove, defenderAbility?: BattleAbility) {
   const accuracy = (move.accuracy ?? 100) / 100;
   if (Math.random() > accuracy) return { damage: 0, multiplier: 1, missed: true };
   if (move.category === "status" || !move.power) return { damage: 0, multiplier: 1, missed: false };
   const multiplier = manualTypeMultiplier(move.type, defender.types);
+  if (defenderAbility?.id === "wonder-guard" && multiplier <= 1) {
+    return { damage: 0, multiplier: 0, missed: false, blockedByAbility: defenderAbility.name };
+  }
   const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
   const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
   const stab = attacker.types.includes(move.type) ? 1.5 : 1;
