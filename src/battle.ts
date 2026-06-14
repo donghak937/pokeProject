@@ -89,7 +89,7 @@ export function createBattleFeed(
   let enemyActive: Pokemon | undefined = enemy[0];
   const playerBench = team.slice(1);
   const enemyBench = enemy.slice(1);
-  const hp = new Map<string, number>([...team, ...enemy].map((mon) => [mon.name, 100]));
+  const hp = new Map<string, number>([...team, ...enemy].map((mon) => [mon.name, initialBattleHp(mon)]));
   const stages = new Map<string, BattleStages>([...team, ...enemy].map((mon) => [mon.name, emptyStages()]));
   const statuses = new Map<string, BattleStatusState>();
   const weather: WeatherState = { turns: 0 };
@@ -371,6 +371,10 @@ export function createBattleFeed(
 
 function remainingCount(active: Pokemon | undefined, bench: Pokemon[], hp: Map<string, number>) {
   return (active && (hp.get(active.name) ?? 0) > 0 ? 1 : 0) + bench.filter((mon) => (hp.get(mon.name) ?? 0) > 0).length;
+}
+
+function initialBattleHp(mon: Pokemon) {
+  return mon.hp <= 1 ? 1 : 100;
 }
 
 function scorePairs(attackers: Pokemon[], defenders: Pokemon[]) {

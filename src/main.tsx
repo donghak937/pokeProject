@@ -1395,8 +1395,8 @@ function createManualBattle(
     enemy,
     enemyMoves,
     enemyAbilities,
-    playerHp: Object.fromEntries(team.map((mon) => [mon.name, 100])),
-    enemyHp: Object.fromEntries(enemy.map((mon) => [mon.name, 100])),
+    playerHp: Object.fromEntries(team.map((mon) => [mon.name, initialManualHp(mon)])),
+    enemyHp: Object.fromEntries(enemy.map((mon) => [mon.name, initialManualHp(mon)])),
     playerActive: team[0]?.name ?? "",
     enemyActive: enemy[0]?.name ?? "",
     logs: [
@@ -1582,6 +1582,10 @@ function manualEffectText(multiplier: number) {
 
 function nextAlive(team: Pokemon[], hp: Record<string, number>) {
   return team.find((mon) => (hp[mon.name] ?? 0) > 0);
+}
+
+function initialManualHp(mon: Pokemon) {
+  return mon.hp <= 1 ? 1 : 100;
 }
 
 function clampNumber(value: number, min: number, max: number) {
