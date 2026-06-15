@@ -43,6 +43,7 @@ export type BattleMove = {
   accuracy: number | null;
   pp: number | null;
   target?: string;
+  drain?: number;
   statChanges?: Array<{
     stat: string;
     change: number;

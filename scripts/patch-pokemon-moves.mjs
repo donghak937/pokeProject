@@ -55,6 +55,7 @@ rows.forEach((row) => {
       accuracy: move.accuracy,
       pp: move.pp,
       target: move.target.name,
+      drain: move.meta?.drain && move.meta.drain > 0 ? move.meta.drain : undefined,
       statChanges: move.stat_changes.map((entry) => ({
         stat: entry.stat.name,
         change: entry.change,

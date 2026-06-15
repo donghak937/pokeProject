@@ -883,6 +883,7 @@ function MovePill({ move }: { move: BattleMove }) {
       <p>
         {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"} · 명중 {move.accuracy ?? "-"} · PP {move.pp ?? "-"}
         {formatMoveStatChanges(move)}
+        {move.drain ? ` · 흡수 ${move.drain}%` : ""}
         {statusEffect ? ` · ${statusLabel(statusEffect.condition)} ${Math.round(statusEffect.chance * 100)}%` : ""}
       </p>
     </article>
@@ -972,7 +973,7 @@ function ManualBattleView({
                 onClick={() => onUseMove(move)}
               >
                 <strong>{move.displayName}</strong>
-                <span>{typeLabels[move.type]} · {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"}</span>
+                <span>{typeLabels[move.type]} · {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"}{move.drain ? ` · 흡수 ${move.drain}%` : ""}</span>
               </button>
             ))}
           </div>
@@ -1482,6 +1483,12 @@ function playManualTurn(
     if (side === "player") next.enemyHp[defender.name] = remaining;
     else next.playerHp[defender.name] = remaining;
     next.logs.push(`${attacker.displayName}의 ${move.displayName}! ${manualEffectText(result.multiplier)}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+    if (result.heal > 0) {
+      const healedHp = Math.min(100, Math.round(attackerHp + result.heal));
+      if (side === "player") next.playerHp[attacker.name] = healedHp;
+      else next.enemyHp[attacker.name] = healedHp;
+      next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} HP를 ${healedHp}%까지 회복했다.`);
+    }
     if (isRechargeMove(move)) {
       next.recharging[attacker.name] = true;
       next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 다음 턴 재충전해야 한다.`);
@@ -1561,6 +1568,12 @@ function playManualSwitch(
   const remaining = Math.max(0, Math.round(defenderHp - result.damage));
   next.playerHp[switched.name] = remaining;
   next.logs.push(`${manualEffectText(result.multiplier)}${switched.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+  if (result.heal > 0) {
+    const enemyHp = next.enemyHp[enemy.name] ?? 0;
+    const healedHp = Math.min(100, Math.round(enemyHp + result.heal));
+    next.enemyHp[enemy.name] = healedHp;
+    next.logs.push(`${enemy.displayName}${subjectParticle(enemy.displayName)} HP를 ${healedHp}%까지 회복했다.`);
+  }
 
   if (remaining <= 0) {
     next.logs.push(`${switched.displayName} 다운!`);
@@ -1584,18 +1597,20 @@ function chooseManualMove(attacker: Pokemon, defender: Pokemon, moves: BattleMov
 
 function manualMoveDamage(attacker: Pokemon, defender: Pokemon, move: BattleMove, defenderAbility?: BattleAbility) {
   const accuracy = (move.accuracy ?? 100) / 100;
-  if (Math.random() > accuracy) return { damage: 0, multiplier: 1, missed: true };
-  if (move.category === "status" || !move.power) return { damage: 0, multiplier: 1, missed: false };
+  if (Math.random() > accuracy) return { damage: 0, heal: 0, multiplier: 1, missed: true };
+  if (move.category === "status" || !move.power) return { damage: 0, heal: 0, multiplier: 1, missed: false };
   const multiplier = manualTypeMultiplier(move.type, defender.types);
   if (defenderAbility?.id === "wonder-guard" && multiplier <= 1) {
-    return { damage: 0, multiplier: 0, missed: false, blockedByAbility: defenderAbility.name };
+    return { damage: 0, heal: 0, multiplier: 0, missed: false, blockedByAbility: defenderAbility.name };
   }
   const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
   const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
   const stab = attacker.types.includes(move.type) ? 1.5 : 1;
   const random = 0.88 + Math.random() * 0.16;
   const raw = ((move.power * (attack / Math.max(35, defense)) * stab * multiplier) / Math.max(40, defender.hp)) * 18;
-  return { damage: clampNumber(Math.round(raw * random), multiplier === 0 ? 0 : 3, multiplier >= 2 ? 78 : 58), multiplier, missed: false };
+  const damage = clampNumber(Math.round(raw * random), multiplier === 0 ? 0 : 3, multiplier >= 2 ? 78 : 58);
+  const heal = move.drain && damage > 0 ? Math.max(1, Math.round(damage * (move.drain / 100))) : 0;
+  return { damage, heal, multiplier, missed: false };
 }
 
 function manualMoveScore(attacker: Pokemon, defender: Pokemon, move: BattleMove) {
