@@ -68,6 +68,7 @@ type ManualBattleState = {
   error?: string;
   result?: "win" | "lose";
 };
+const renderShowdownApiBase = "https://pokeproject-showdown-api.onrender.com";
 const buildShowdownApiBase = import.meta.env.VITE_SHOWDOWN_API_URL?.trim();
 const implementedAbilityIds = new Set([
   "adaptability",
@@ -1517,31 +1518,53 @@ function manualBattleFromShowdown(base: ManualBattleState, battleId: string, chu
 }
 
 async function postShowdown(path: string, body: unknown) {
-  const response = await fetch(`${showdownApiBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const errors: string[] = [];
 
-  if (!response.ok) {
-    throw new Error(`${response.status} ${await response.text()}`);
+  for (const baseUrl of showdownApiBases()) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        errors.push(`${baseUrl}: ${response.status} ${await response.text()}`);
+        continue;
+      }
+
+      if (baseUrl !== "/api") {
+        window.localStorage.setItem("pokeproject-showdown-api", baseUrl);
+      }
+      return response.json() as Promise<{ battleId: string; chunks: string[] }>;
+    } catch (error) {
+      errors.push(`${baseUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  return response.json() as Promise<{ battleId: string; chunks: string[] }>;
+  throw new Error(errors.join(" / "));
 }
 
-function showdownApiBase() {
+function showdownApiBases() {
   const runtimeUrl = new URL(window.location.href);
   const urlParam = runtimeUrl.searchParams.get("api")?.trim();
   if (urlParam) {
-    window.localStorage.setItem("pokeproject-showdown-api", urlParam);
-    return urlParam.replace(/\/$/, "");
+    const normalized = urlParam.replace(/\/$/, "");
+    window.localStorage.setItem("pokeproject-showdown-api", normalized);
+    return uniqueApiBases([normalized, renderShowdownApiBase, "/api"]);
   }
 
   const storedUrl = window.localStorage.getItem("pokeproject-showdown-api")?.trim();
-  if (storedUrl) return storedUrl.replace(/\/$/, "");
-  if (buildShowdownApiBase) return buildShowdownApiBase.replace(/\/$/, "");
-  return "/api";
+  return uniqueApiBases([
+    storedUrl?.replace(/\/$/, ""),
+    buildShowdownApiBase?.replace(/\/$/, ""),
+    renderShowdownApiBase,
+    "/api",
+  ]);
+}
+
+function uniqueApiBases(urls: Array<string | undefined>) {
+  return urls.filter((url): url is string => Boolean(url)).filter((url, index, list) => list.indexOf(url) === index);
 }
 
 function latestShowdownRequest(chunks: string[], side: "p1" | "p2"): ShowdownRequest | undefined {
