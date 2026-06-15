@@ -797,7 +797,7 @@ h2 {
 .manual-console {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(180px, 1fr);
+  grid-template-rows: auto auto auto minmax(0, auto);
   gap: 12px;
   overflow: hidden;
   border: 1px solid rgba(170, 181, 196, 0.18);
@@ -1000,8 +1000,38 @@ h2 {
   font-size: 0.8rem;
 }
 
+.manual-log-panel {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 10px;
+  border: 1px solid rgba(170, 181, 196, 0.16);
+  border-radius: 8px;
+  background: rgba(6, 8, 12, 0.28);
+}
+
 .manual-log {
-  min-height: 180px;
+  height: 180px;
+  max-height: 180px;
+  min-height: 0;
+}
+
+.manual-history {
+  min-height: 0;
+}
+
+.manual-history summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.manual-history-log {
+  height: 240px;
+  max-height: 240px;
+  margin-top: 8px;
 }
 
 .battle-roster,

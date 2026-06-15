@@ -924,6 +924,8 @@ function ManualBattleView({
   const moves = teamMoves[activePlayer.name] ?? [];
   const switchTargets = team.filter((mon) => mon.name !== battle.playerActive && (battle.playerHp[mon.name] ?? 0) > 0);
   const logRef = React.useRef<HTMLDivElement>(null);
+  const visibleLogs = battle.logs.slice(-6);
+  const hiddenLogCount = Math.max(0, battle.logs.length - visibleLogs.length);
 
   React.useEffect(() => {
     const node = logRef.current;
@@ -990,8 +992,22 @@ function ManualBattleView({
               {switchTargets.length === 0 && <p>교체 가능한 포켓몬이 없습니다.</p>}
             </div>
           </div>
-          <div className="battle-log manual-log" ref={logRef}>
-            {battle.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+          <div className="manual-log-panel">
+            <div className="manual-section-heading">
+              <span>현재 로그</span>
+              <strong>{hiddenLogCount > 0 ? `이전 ${hiddenLogCount}줄 접힘` : "실시간"}</strong>
+            </div>
+            <div className="battle-log manual-log" ref={logRef}>
+              {visibleLogs.map((line, index) => <p key={`${line}-${battle.logs.length - visibleLogs.length + index}`}>{line}</p>)}
+            </div>
+            {hiddenLogCount > 0 && (
+              <details className="manual-history">
+                <summary>전체 로그 보기</summary>
+                <div className="battle-log manual-history-log">
+                  {battle.logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+                </div>
+              </details>
+            )}
           </div>
         </div>
         <ManualSide title="상대 파티" pokemon={battle.enemy} hp={battle.enemyHp} activeName={battle.enemyActive} abilitySet={battle.enemyAbilities} align="right" />
