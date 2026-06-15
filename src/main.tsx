@@ -68,7 +68,7 @@ type ManualBattleState = {
   error?: string;
   result?: "win" | "lose";
 };
-const showdownApiBase = (import.meta.env.VITE_SHOWDOWN_API_URL ?? "/api").replace(/\/$/, "");
+const buildShowdownApiBase = import.meta.env.VITE_SHOWDOWN_API_URL?.trim();
 const implementedAbilityIds = new Set([
   "adaptability",
   "aftermath",
@@ -1511,7 +1511,7 @@ function manualBattleFromShowdown(base: ManualBattleState, battleId: string, chu
 }
 
 async function postShowdown(path: string, body: unknown) {
-  const response = await fetch(`${showdownApiBase}${path}`, {
+  const response = await fetch(`${showdownApiBase()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -1522,6 +1522,20 @@ async function postShowdown(path: string, body: unknown) {
   }
 
   return response.json() as Promise<{ battleId: string; chunks: string[] }>;
+}
+
+function showdownApiBase() {
+  const runtimeUrl = new URL(window.location.href);
+  const urlParam = runtimeUrl.searchParams.get("api")?.trim();
+  if (urlParam) {
+    window.localStorage.setItem("pokeproject-showdown-api", urlParam);
+    return urlParam.replace(/\/$/, "");
+  }
+
+  const storedUrl = window.localStorage.getItem("pokeproject-showdown-api")?.trim();
+  if (storedUrl) return storedUrl.replace(/\/$/, "");
+  if (buildShowdownApiBase) return buildShowdownApiBase.replace(/\/$/, "");
+  return "/api";
 }
 
 function latestShowdownRequest(chunks: string[], side: "p1" | "p2"): ShowdownRequest | undefined {

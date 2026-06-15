@@ -64,6 +64,15 @@ POST /battle/:id/player-action
 1. Push this repository to GitHub.
 2. In Render, create a new Blueprint from the repository.
 3. Render will read `render.yaml`.
-4. After deploy, copy the service URL and use it as the frontend API base URL.
+4. After deploy, copy the service URL and set the GitHub repository variable `VITE_SHOWDOWN_API_URL` to that URL.
+5. Re-run the GitHub Pages workflow.
 
 The backend accepts CORS from any origin for now because this is a friend-only prototype.
+
+You can also test a deployed frontend without rebuilding by opening:
+
+```text
+https://donghak937.github.io/pokeProject/?api=https://your-render-service.onrender.com
+```
+
+The `api` query parameter is saved in local storage for later visits.
