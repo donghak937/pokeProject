@@ -207,13 +207,12 @@ export function createShowdownHandler() {
           return true;
         }
 
-        entry.battle.write(`>p1 ${body.choice}`);
-        await waitForChunks(100);
-        const enemyChoice = await applyAutoChoice(entry, "p2");
-        await applyAutoChoice(entry, "p1");
-        sendJson(res, 200, { battleId: playerActionMatch[1], enemyChoice, chunks: entry.battle.snapshot() });
-        return true;
-      }
+      entry.battle.write(`>p1 ${body.choice}`);
+      await waitForChunks(100);
+      const enemyChoice = await applyAutoChoice(entry, "p2");
+      sendJson(res, 200, { battleId: playerActionMatch[1], enemyChoice, chunks: entry.battle.snapshot() });
+      return true;
+    }
 
       sendJson(res, 404, { error: "not found" });
       return true;

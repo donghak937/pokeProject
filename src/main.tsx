@@ -995,6 +995,7 @@ function ManualBattleView({
     ?.map((requestMon, index) => ({ requestMon, index, pokemon: pokemonFromIdent(team, requestMon.ident) }))
     .filter(({ requestMon, pokemon: mon }) => mon && !requestMon.active && !isFaintedCondition(requestMon.condition)) ?? [];
   const controlsDisabled = Boolean(battle.result || battle.pending || battle.status !== "ready" || battle.request?.wait);
+  const needsSwitch = Boolean(battle.request?.forceSwitch?.[0]);
   const logRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -1054,12 +1055,16 @@ function ManualBattleView({
               </button>
               );
             })}
-            {moves.length === 0 && <p className="manual-status">Showdown의 선택 요청을 기다리는 중입니다.</p>}
+            {moves.length === 0 && (
+              <p className="manual-status">
+                {needsSwitch ? "포켓몬이 쓰러졌습니다. 아래에서 다음 포켓몬을 교체하세요." : "Showdown의 선택 요청을 기다리는 중입니다."}
+              </p>
+            )}
           </div>
           <div className="manual-switches" aria-label="교체">
             <div className="manual-section-heading">
               <span>교체</span>
-              <strong>{battle.result ? "전투 종료" : battle.pending ? "처리 중" : "Showdown 판정"}</strong>
+              <strong>{battle.result ? "전투 종료" : battle.pending ? "처리 중" : needsSwitch ? "필수" : "Showdown 판정"}</strong>
             </div>
             <div className="manual-switch-list">
               {switchTargets.map(({ pokemon: mon, index }) => mon && (
