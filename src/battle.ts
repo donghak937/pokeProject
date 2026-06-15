@@ -210,6 +210,11 @@ export function createBattleFeed(
         hp.set(attacker.name, attackerHp);
         logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 특성 피해로 ${result.attackerDamage}% 피해. 남은 HP ${attackerHp}%.`);
       }
+      if (result.heal && result.heal > 0) {
+        const healedHp = Math.min(100, Math.round((hp.get(attacker.name) ?? 100) + result.heal));
+        hp.set(attacker.name, healedHp);
+        logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} HP를 ${healedHp}%까지 회복했다.`);
+      }
       if (result.statusApplied) {
         statuses.set(defender.name, { condition: result.statusApplied, turns: initialStatusTurns(result.statusApplied, defenderAbility) });
         logs.push(`${defender.displayName}${subjectParticle(defender.displayName)} ${statusLabel(result.statusApplied)} 상태가 되었다!`);
@@ -539,7 +544,7 @@ function calculateMoveDamage(
 
   const immunity = abilityImmunity(defender, effectiveDefenderAbility, move, stages);
   if (immunity) {
-    return { move, damage: 0, multiplier: 0, missed: false, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: immunity };
+    return { move, damage: 0, heal: 0, multiplier: 0, missed: false, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: immunity };
   }
 
   const rawMultiplier = bestAttackMultiplier([move.type], defender.types);
@@ -586,7 +591,7 @@ function calculateMoveDamage(
   const power = move.power ?? 25;
   const accuracy = modifiedAccuracy(move, attackerAbility, effectiveDefenderAbility, statuses?.get(defender.name)?.condition, activeWeather);
   if (Math.random() > accuracy) {
-    return { move, damage: 0, multiplier, missed: true, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: undefined };
+    return { move, damage: 0, heal: 0, multiplier, missed: true, statusApplied: undefined, attackerStatusApplied: undefined, abilityNote: undefined };
   }
 
   const randomFactor = 0.88 + Math.random() * 0.16;
@@ -623,11 +628,12 @@ function calculateMoveDamage(
   if (statusApplied === "burn" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "burn";
   if (statusApplied === "paralysis" && defenderAbility?.id === "synchronize" && !statuses?.has(attacker.name)) attackerStatusApplied = "paralysis";
   if (statusApplied && defenderAbility?.id === "magic-bounce" && !statuses?.has(attacker.name)) {
-    return { move, damage: 0, multiplier, missed: false, statusApplied: undefined, attackerStatusApplied: statusApplied, abilityNote: `${defender.displayName}의 ${defenderAbility.name}! 상태이상을 되돌렸다.` };
+    return { move, damage: 0, heal: 0, multiplier, missed: false, statusApplied: undefined, attackerStatusApplied: statusApplied, abilityNote: `${defender.displayName}의 ${defenderAbility.name}! 상태이상을 되돌렸다.` };
   }
 
   const attackerDamage = contactAbilityDamage(move, effectiveDefenderAbility, attackerAbility);
-  return { move, damage, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote, critical, attackerDamage };
+  const heal = move.drain && damage > 0 ? Math.max(1, Math.round(damage * (move.drain / 100))) : 0;
+  return { move, damage, heal, multiplier, missed: false, statusApplied, attackerStatusApplied, abilityNote, critical, attackerDamage };
 }
 
 function formatMoveDamage(
