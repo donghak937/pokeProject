@@ -25,34 +25,7 @@ const rounds = ["16강", "8강", "4강", "결승"] as const;
 type GameMode = "random" | "champions" | "manual";
 const logSpeeds = [0.5, 0.75, 1, 1.5, 2] as const;
 type LogSpeed = (typeof logSpeeds)[number];
-type ShowdownMoveRequest = {
-  move: string;
-  id: string;
-  pp?: number;
-  maxpp?: number;
-  disabled?: boolean;
-};
-type ShowdownPokemonRequest = {
-  ident: string;
-  condition: string;
-  active?: boolean;
-  ability?: string;
-  baseAbility?: string;
-  moves?: string[];
-};
-type ShowdownSideRequest = {
-  pokemon: ShowdownPokemonRequest[];
-};
-type ShowdownRequest = {
-  wait?: boolean;
-  forceSwitch?: boolean[];
-  active?: Array<{
-    moves?: ShowdownMoveRequest[];
-  }>;
-  side?: ShowdownSideRequest;
-};
 type ManualBattleState = {
-  battleId?: string;
   enemy: Pokemon[];
   enemyMoves: MoveSet;
   enemyAbilities: Record<string, BattleAbility>;
@@ -60,16 +33,10 @@ type ManualBattleState = {
   enemyHp: Record<string, number>;
   playerActive: string;
   enemyActive: string;
-  chunks: string[];
+  recharging: Record<string, boolean>;
   logs: string[];
-  request?: ShowdownRequest;
-  status: "loading" | "ready" | "error";
-  pending?: boolean;
-  error?: string;
   result?: "win" | "lose";
 };
-const renderShowdownApiBase = "https://pokeproject-showdown-api.onrender.com";
-const buildShowdownApiBase = import.meta.env.VITE_SHOWDOWN_API_URL?.trim();
 const implementedAbilityIds = new Set([
   "adaptability",
   "aftermath",
@@ -383,51 +350,6 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [activeMatch, visibleLogCount, logSpeed]);
 
-  async function startManualBattle() {
-    const loadingBattle = createManualBattle(team);
-    setManualBattle(loadingBattle);
-    setMatches([]);
-
-    try {
-      const response = await postShowdown("/battle/start", {
-        team,
-        enemy: loadingBattle.enemy,
-        playerMoves: teamMoves,
-        enemyMoves: loadingBattle.enemyMoves,
-        playerAbilities: teamAbilities,
-        enemyAbilities: loadingBattle.enemyAbilities,
-        seed: randomShowdownSeed(),
-      });
-      setManualBattle(manualBattleFromShowdown(loadingBattle, response.battleId, response.chunks));
-    } catch (error) {
-      setManualBattle({
-        ...loadingBattle,
-        status: "error",
-        error: error instanceof Error ? error.message : String(error),
-        logs: [...loadingBattle.logs, `Showdown API 연결 실패: ${error instanceof Error ? error.message : String(error)}`],
-      });
-    }
-  }
-
-  async function submitManualChoice(choice: string) {
-    const battle = manualBattle;
-    if (!battle?.battleId || battle.pending || battle.status !== "ready") return;
-
-    setManualBattle({ ...battle, pending: true });
-    try {
-      const response = await postShowdown(`/battle/${battle.battleId}/player-action`, { choice });
-      setManualBattle(manualBattleFromShowdown({ ...battle, pending: false }, battle.battleId, response.chunks));
-    } catch (error) {
-      setManualBattle({
-        ...battle,
-        pending: false,
-        status: "error",
-        error: error instanceof Error ? error.message : String(error),
-        logs: [...battle.logs, `Showdown API 선택 실패: ${error instanceof Error ? error.message : String(error)}`],
-      });
-    }
-  }
-
   function startRun() {
     const nextRule = rollRule();
     const nextChoices = buildChoices(nextRule, []);
@@ -478,7 +400,8 @@ function App() {
 
   function simulateAgain() {
     if (mode === "manual") {
-      void startManualBattle();
+      setManualBattle(createManualBattle(team, teamMoves, teamAbilities));
+      setMatches([]);
       return;
     }
     setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
@@ -488,7 +411,8 @@ function App() {
 
   function startBattle() {
     if (mode === "manual") {
-      void startManualBattle();
+      setManualBattle(createManualBattle(team, teamMoves, teamAbilities));
+      setMatches([]);
       return;
     }
     setMatches(simulateRun(team, mode, teamMoves, teamAbilities));
@@ -640,9 +564,11 @@ function App() {
           <ManualBattleView
             battle={manualBattle}
             team={team}
+            teamMoves={teamMoves}
             teamAbilities={teamAbilities}
-            onChoose={(choice) => void submitManualChoice(choice)}
-            onRestart={() => void startManualBattle()}
+            onUseMove={(move) => setManualBattle((current) => current ? playManualTurn(current, team, teamMoves, teamAbilities, move) : current)}
+            onSwitchPokemon={(pokemonName) => setManualBattle((current) => current ? playManualSwitch(current, team, teamAbilities, pokemonName) : current)}
+            onRestart={() => setManualBattle(createManualBattle(team, teamMoves, teamAbilities))}
           />
         ) : (
           <section className="tournament" aria-label="도전 결과">
@@ -979,24 +905,24 @@ function BattleProgress({ matches, activeIndex }: { matches: MatchResult[]; acti
 function ManualBattleView({
   battle,
   team,
+  teamMoves,
   teamAbilities,
-  onChoose,
+  onUseMove,
+  onSwitchPokemon,
   onRestart,
 }: {
   battle: ManualBattleState;
   team: Pokemon[];
+  teamMoves: MoveSet;
   teamAbilities: Record<string, BattleAbility>;
-  onChoose: (choice: string) => void;
+  onUseMove: (move: BattleMove) => void;
+  onSwitchPokemon: (pokemonName: string) => void;
   onRestart: () => void;
 }) {
   const activePlayer = team.find((mon) => mon.name === battle.playerActive) ?? team[0];
   const activeEnemy = battle.enemy.find((mon) => mon.name === battle.enemyActive) ?? battle.enemy[0];
-  const moves = battle.request?.active?.[0]?.moves ?? [];
-  const switchTargets = battle.request?.side?.pokemon
-    ?.map((requestMon, index) => ({ requestMon, index, pokemon: pokemonFromIdent(team, requestMon.ident) }))
-    .filter(({ requestMon, pokemon: mon }) => mon && !requestMon.active && !isFaintedCondition(requestMon.condition)) ?? [];
-  const controlsDisabled = Boolean(battle.result || battle.pending || battle.status !== "ready" || battle.request?.wait);
-  const needsSwitch = Boolean(battle.request?.forceSwitch?.[0]);
+  const moves = teamMoves[activePlayer.name] ?? [];
+  const switchTargets = team.filter((mon) => mon.name !== battle.playerActive && (battle.playerHp[mon.name] ?? 0) > 0);
   const logRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -1020,8 +946,6 @@ function ManualBattleView({
         <div>
           <p className="eyebrow">직접 전투</p>
           <h2>{battle.result ? (battle.result === "win" ? "승리" : "패배") : `${activePlayer.displayName} vs ${activeEnemy.displayName}`}</h2>
-          {battle.status === "loading" && <p className="manual-status">Showdown API 연결 중...</p>}
-          {battle.status === "error" && <p className="manual-status error">{battle.error}</p>}
         </div>
         <button className="primary-action" type="button" onClick={onRestart}>
           <Swords size={18} />
@@ -1036,41 +960,28 @@ function ManualBattleView({
             <ManualActiveCard pokemon={activeEnemy} hp={battle.enemyHp[activeEnemy.name] ?? 0} ability={battle.enemyAbilities[activeEnemy.name]} align="right" />
           </div>
           <div className="manual-actions">
-            {moves.map((move, index) => {
-              const localMove = findLocalMove(activePlayer, move.id, move.move);
-              const moveType = localMove?.type ?? activePlayer.types[0];
-              const moveLabel = localMove ? translatedMoveName(localMove.name, localMove.displayName) : translateMoveName(move.move);
-              return (
+            {moves.map((move) => (
               <button
                 className="manual-move"
-                disabled={controlsDisabled || Boolean(move.disabled)}
-                key={`${move.id}-${index}`}
-                style={{ "--move": typeColors[moveType] } as React.CSSProperties}
+                disabled={Boolean(battle.result)}
+                key={move.name}
+                style={{ "--move": typeColors[move.type] } as React.CSSProperties}
                 type="button"
-                onClick={() => onChoose(`move ${index + 1}`)}
+                onClick={() => onUseMove(move)}
               >
-                <strong>{moveLabel}</strong>
-                <span>
-                  {typeLabels[moveType]} · PP {move.pp ?? "-"} / {move.maxpp ?? "-"}
-                  {move.disabled ? " · 사용 불가" : ""}
-                </span>
+                <strong>{move.displayName}</strong>
+                <span>{typeLabels[move.type]} · {moveCategoryLabel(move.category)} · 위력 {move.power ?? "-"}</span>
               </button>
-              );
-            })}
-            {moves.length === 0 && (
-              <p className="manual-status">
-                {needsSwitch ? "포켓몬이 쓰러졌습니다. 아래에서 다음 포켓몬을 교체하세요." : "Showdown의 선택 요청을 기다리는 중입니다."}
-              </p>
-            )}
+            ))}
           </div>
           <div className="manual-switches" aria-label="교체">
             <div className="manual-section-heading">
               <span>교체</span>
-              <strong>{battle.result ? "전투 종료" : battle.pending ? "처리 중" : needsSwitch ? "필수" : "Showdown 판정"}</strong>
+              <strong>{battle.result ? "전투 종료" : "턴 소모"}</strong>
             </div>
             <div className="manual-switch-list">
-              {switchTargets.map(({ pokemon: mon, index }) => mon && (
-                <button disabled={controlsDisabled} key={mon.name} type="button" onClick={() => onChoose(`switch ${index + 1}`)}>
+              {switchTargets.map((mon) => (
+                <button disabled={Boolean(battle.result)} key={mon.name} type="button" onClick={() => onSwitchPokemon(mon.name)}>
                   <PokemonPortrait pokemon={mon} />
                   <span>{mon.displayName}</span>
                   <strong>{Math.round(battle.playerHp[mon.name] ?? 0)}%</strong>
@@ -1473,7 +1384,11 @@ function simulateOpponent(
   };
 }
 
-function createManualBattle(team: Pokemon[]): ManualBattleState {
+function createManualBattle(
+  team: Pokemon[],
+  playerMoves: MoveSet,
+  playerAbilities: Record<string, BattleAbility>,
+): ManualBattleState {
   const enemy = buildEnemyTeam(0).slice(0, 6);
   const enemyMoves = buildMoveSet(enemy);
   const enemyAbilities = buildAbilitySet(enemy);
@@ -1485,245 +1400,214 @@ function createManualBattle(team: Pokemon[]): ManualBattleState {
     enemyHp: Object.fromEntries(enemy.map((mon) => [mon.name, initialManualHp(mon)])),
     playerActive: team[0]?.name ?? "",
     enemyActive: enemy[0]?.name ?? "",
-    chunks: [],
-    logs: [`Showdown API로 직접 전투를 준비합니다.`],
-    status: "loading",
+    recharging: {},
+    logs: [
+      `직접 전투 시작! 내 선봉 ${team[0]?.displayName ?? "대기"}, 상대 선봉 ${enemy[0]?.displayName ?? "대기"}.`,
+      `내 포켓몬을 직접 조작합니다. 기술을 선택하세요.`,
+    ],
   };
 }
 
-function manualBattleFromShowdown(base: ManualBattleState, battleId: string, chunks: string[]): ManualBattleState {
-  const playerRequest = latestShowdownRequest(chunks, "p1");
-  const enemyRequest = latestShowdownRequest(chunks, "p2");
-  const playerHp = requestHpMap(playerRequest);
-  const enemyHp = requestHpMap(enemyRequest);
-  const playerActive = activeNameFromRequest(playerRequest) ?? base.playerActive;
-  const enemyActive = activeNameFromRequest(enemyRequest) ?? base.enemyActive;
-  const result = showdownWinner(chunks);
+function playManualTurn(
+  battle: ManualBattleState,
+  team: Pokemon[],
+  playerMoves: MoveSet,
+  playerAbilities: Record<string, BattleAbility>,
+  playerMove: BattleMove,
+): ManualBattleState {
+  if (battle.result) return battle;
 
-  return {
-    ...base,
-    battleId,
-    chunks,
-    playerHp: Object.keys(playerHp).length > 0 ? playerHp : base.playerHp,
-    enemyHp: Object.keys(enemyHp).length > 0 ? enemyHp : base.enemyHp,
-    playerActive,
-    enemyActive,
-    request: playerRequest,
-    logs: showdownLogs(chunks, [...base.enemy]),
-    result,
-    pending: false,
-    status: "ready",
-    error: undefined,
+  const player = team.find((mon) => mon.name === battle.playerActive);
+  const enemy = battle.enemy.find((mon) => mon.name === battle.enemyActive);
+  if (!player || !enemy) return battle;
+
+  const enemyMove = chooseManualMove(enemy, player, battle.enemyMoves[enemy.name] ?? []);
+  const turnPlayerName = player.name;
+  const turnEnemyName = enemy.name;
+  const firstSide = player.speed >= enemy.speed ? "player" : "enemy";
+  const order = firstSide === "player" ? (["player", "enemy"] as const) : (["enemy", "player"] as const);
+  const next: ManualBattleState = {
+    ...battle,
+    playerHp: { ...battle.playerHp },
+    enemyHp: { ...battle.enemyHp },
+    recharging: { ...battle.recharging },
+    logs: [...battle.logs, `턴 시작: ${player.displayName}의 ${playerMove.displayName} / ${enemy.displayName}의 ${enemyMove.displayName}`],
   };
-}
 
-async function postShowdown(path: string, body: unknown) {
-  const errors: string[] = [];
+  for (const side of order) {
+    if (next.result) break;
+    if (side === "player" && next.playerActive !== turnPlayerName) continue;
+    if (side === "enemy" && next.enemyActive !== turnEnemyName) continue;
+    const attacker = side === "player" ? team.find((mon) => mon.name === turnPlayerName) : battle.enemy.find((mon) => mon.name === turnEnemyName);
+    const defender = side === "player" ? battle.enemy.find((mon) => mon.name === next.enemyActive) : team.find((mon) => mon.name === next.playerActive);
+    const move = side === "player" ? playerMove : enemyMove;
+    if (!attacker || !defender) continue;
+    const attackerHp = side === "player" ? next.playerHp[attacker.name] ?? 0 : next.enemyHp[attacker.name] ?? 0;
+    const defenderHp = side === "player" ? next.enemyHp[defender.name] ?? 0 : next.playerHp[defender.name] ?? 0;
+    if (attackerHp <= 0 || defenderHp <= 0) continue;
 
-  for (const baseUrl of showdownApiBases()) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    if (next.recharging[attacker.name]) {
+      delete next.recharging[attacker.name];
+      next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 반동으로 움직일 수 없다. 재충전 중!`);
+      continue;
+    }
 
-      if (!response.ok) {
-        errors.push(`${baseUrl}: ${response.status} ${await response.text()}`);
-        continue;
+    const defenderAbility = side === "player" ? battle.enemyAbilities[defender.name] : playerAbilities[defender.name];
+    const result = manualMoveDamage(attacker, defender, move, defenderAbility);
+    if (result.missed) {
+      next.logs.push(`${attacker.displayName}의 ${move.displayName}! 빗나갔다.`);
+      continue;
+    }
+    if (result.blockedByAbility) {
+      next.logs.push(`${defender.displayName}의 ${result.blockedByAbility}! 효과가 뛰어난 기술만 통한다.`);
+      continue;
+    }
+    const remaining = Math.max(0, Math.round(defenderHp - result.damage));
+    if (side === "player") next.enemyHp[defender.name] = remaining;
+    else next.playerHp[defender.name] = remaining;
+    next.logs.push(`${attacker.displayName}의 ${move.displayName}! ${manualEffectText(result.multiplier)}${defender.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+    if (isRechargeMove(move)) {
+      next.recharging[attacker.name] = true;
+      next.logs.push(`${attacker.displayName}${subjectParticle(attacker.displayName)} 다음 턴 재충전해야 한다.`);
+    }
+
+    if (remaining <= 0) {
+      next.logs.push(`${defender.displayName} 다운!`);
+      if (side === "player") {
+        const nextEnemy = nextAlive(battle.enemy, next.enemyHp);
+        if (!nextEnemy) {
+          next.result = "win";
+          next.logs.push(`승리! 상대 포켓몬 전원 다운.`);
+          break;
+        }
+        next.enemyActive = nextEnemy.name;
+        next.logs.push(`상대, ${nextEnemy.displayName} 등장.`);
+      } else {
+        const nextPlayer = nextAlive(team, next.playerHp);
+        if (!nextPlayer) {
+          next.result = "lose";
+          next.logs.push(`패배... 내 포켓몬 전원 다운.`);
+          break;
+        }
+        next.playerActive = nextPlayer.name;
+        next.logs.push(`내 파티, ${nextPlayer.displayName} 등장.`);
       }
-
-      if (baseUrl !== "/api") {
-        window.localStorage.setItem("pokeproject-showdown-api", baseUrl);
-      }
-      return response.json() as Promise<{ battleId: string; chunks: string[] }>;
-    } catch (error) {
-      errors.push(`${baseUrl}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  throw new Error(errors.join(" / "));
+  return next;
 }
 
-function showdownApiBases() {
-  const runtimeUrl = new URL(window.location.href);
-  const urlParam = runtimeUrl.searchParams.get("api")?.trim();
-  if (urlParam) {
-    const normalized = urlParam.replace(/\/$/, "");
-    window.localStorage.setItem("pokeproject-showdown-api", normalized);
-    return uniqueApiBases([normalized, renderShowdownApiBase, "/api"]);
+function playManualSwitch(
+  battle: ManualBattleState,
+  team: Pokemon[],
+  playerAbilities: Record<string, BattleAbility>,
+  targetName: string,
+): ManualBattleState {
+  if (battle.result || targetName === battle.playerActive || (battle.playerHp[targetName] ?? 0) <= 0) return battle;
+
+  const previous = team.find((mon) => mon.name === battle.playerActive);
+  const switched = team.find((mon) => mon.name === targetName);
+  const enemy = battle.enemy.find((mon) => mon.name === battle.enemyActive);
+  if (!switched || !enemy) return battle;
+  if (previous && battle.recharging[previous.name]) {
+    return {
+      ...battle,
+      logs: [...battle.logs, `${previous.displayName}${subjectParticle(previous.displayName)} 재충전 중이라 교체할 수 없다. 기술을 선택하면 이번 턴을 쉰다.`],
+    };
   }
 
-  const storedUrl = window.localStorage.getItem("pokeproject-showdown-api")?.trim();
-  return uniqueApiBases([
-    storedUrl?.replace(/\/$/, ""),
-    buildShowdownApiBase?.replace(/\/$/, ""),
-    renderShowdownApiBase,
-    "/api",
-  ]);
-}
+  const enemyMove = chooseManualMove(enemy, switched, battle.enemyMoves[enemy.name] ?? []);
+  const next: ManualBattleState = {
+    ...battle,
+    playerHp: { ...battle.playerHp },
+    enemyHp: { ...battle.enemyHp },
+    recharging: { ...battle.recharging },
+    playerActive: switched.name,
+    logs: [
+      ...battle.logs,
+      `내 파티, ${previous?.displayName ?? "대기"}에서 ${switched.displayName} 교체.`,
+      `상대 ${enemy.displayName}의 ${enemyMove.displayName}!`,
+    ],
+  };
 
-function uniqueApiBases(urls: Array<string | undefined>) {
-  return urls.filter((url): url is string => Boolean(url)).filter((url, index, list) => list.indexOf(url) === index);
-}
+  const defenderHp = next.playerHp[switched.name] ?? 0;
+  const result = manualMoveDamage(enemy, switched, enemyMove, playerAbilities[switched.name]);
+  if (result.missed) {
+    next.logs.push(`하지만 빗나갔다.`);
+    return next;
+  }
+  if (result.blockedByAbility) {
+    next.logs.push(`${switched.displayName}의 ${result.blockedByAbility}! 효과가 뛰어난 기술만 통한다.`);
+    return next;
+  }
 
-function latestShowdownRequest(chunks: string[], side: "p1" | "p2"): ShowdownRequest | undefined {
-  for (let index = chunks.length - 1; index >= 0; index -= 1) {
-    const lines = chunks[index].split("\n");
-    if (lines[0] !== "sideupdate" || lines[1] !== side) continue;
-    const requestLine = lines.find((line) => line.startsWith("|request|"));
-    if (!requestLine) continue;
-    try {
-      return JSON.parse(requestLine.slice("|request|".length)) as ShowdownRequest;
-    } catch {
-      return undefined;
+  const remaining = Math.max(0, Math.round(defenderHp - result.damage));
+  next.playerHp[switched.name] = remaining;
+  next.logs.push(`${manualEffectText(result.multiplier)}${switched.displayName}에게 ${result.damage}% 피해. 남은 HP ${remaining}%.`);
+
+  if (remaining <= 0) {
+    next.logs.push(`${switched.displayName} 다운!`);
+    const nextPlayer = nextAlive(team, next.playerHp);
+    if (!nextPlayer) {
+      next.result = "lose";
+      next.logs.push(`패배... 내 포켓몬 전원 다운.`);
+    } else {
+      next.playerActive = nextPlayer.name;
+      next.logs.push(`내 파티, ${nextPlayer.displayName} 등장.`);
     }
   }
-  return undefined;
+
+  return next;
 }
 
-function requestHpMap(request: ShowdownRequest | undefined) {
-  return Object.fromEntries((request?.side?.pokemon ?? []).map((mon) => [pokemonNameFromIdent(mon.ident), conditionPercent(mon.condition)]));
+function chooseManualMove(attacker: Pokemon, defender: Pokemon, moves: BattleMove[]) {
+  const candidates = moves.length > 0 ? moves : attacker.movePool.slice(0, 4);
+  return candidates.reduce((best, move) => manualMoveScore(attacker, defender, move) > manualMoveScore(attacker, defender, best) ? move : best);
 }
 
-function activeNameFromRequest(request: ShowdownRequest | undefined) {
-  const active = request?.side?.pokemon?.find((mon) => mon.active && !isFaintedCondition(mon.condition));
-  return active ? pokemonNameFromIdent(active.ident) : undefined;
+function manualMoveDamage(attacker: Pokemon, defender: Pokemon, move: BattleMove, defenderAbility?: BattleAbility) {
+  const accuracy = (move.accuracy ?? 100) / 100;
+  if (Math.random() > accuracy) return { damage: 0, multiplier: 1, missed: true };
+  if (move.category === "status" || !move.power) return { damage: 0, multiplier: 1, missed: false };
+  const multiplier = manualTypeMultiplier(move.type, defender.types);
+  if (defenderAbility?.id === "wonder-guard" && multiplier <= 1) {
+    return { damage: 0, multiplier: 0, missed: false, blockedByAbility: defenderAbility.name };
+  }
+  const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
+  const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
+  const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+  const random = 0.88 + Math.random() * 0.16;
+  const raw = ((move.power * (attack / Math.max(35, defense)) * stab * multiplier) / Math.max(40, defender.hp)) * 18;
+  return { damage: clampNumber(Math.round(raw * random), multiplier === 0 ? 0 : 3, multiplier >= 2 ? 78 : 58), multiplier, missed: false };
 }
 
-function showdownWinner(chunks: string[]) {
-  const joined = chunks.join("\n");
-  if (joined.includes("|win|Player")) return "win" as const;
-  if (joined.includes("|win|Enemy")) return "lose" as const;
-  return undefined;
+function manualMoveScore(attacker: Pokemon, defender: Pokemon, move: BattleMove) {
+  if (move.category === "status" || !move.power) return 8;
+  const attack = move.category === "physical" ? attacker.attack : attacker.specialAttack;
+  const defense = move.category === "physical" ? defender.defense : defender.specialDefense;
+  return move.power * manualTypeMultiplier(move.type, defender.types) * ((move.accuracy ?? 100) / 100) * (attack / Math.max(35, defense));
 }
 
-function showdownLogs(chunks: string[], enemy: Pokemon[]) {
-  const logs = chunks.flatMap((chunk) =>
-    chunk
-      .split("\n")
-      .map((line) => formatShowdownLog(line, enemy))
-      .filter((line): line is string => Boolean(line)),
+function isRechargeMove(move: BattleMove) {
+  return ["blast-burn", "eternabeam", "frenzy-plant", "giga-impact", "hydro-cannon", "hyper-beam", "meteor-assault", "prismatic-laser", "roar-of-time", "rock-wrecker"].includes(
+    move.name.toLowerCase(),
   );
-  return logs.length > 0 ? uniqueConsecutiveLogs(logs) : ["Showdown 전투 로그를 기다리는 중입니다."];
 }
 
-function formatShowdownLog(line: string, enemy: Pokemon[]) {
-  const parts = line.split("|");
-  const tag = parts[1];
-  if (tag === "start") return "전투 시작!";
-  if (tag === "turn") return `${parts[2]}턴`;
-  if (tag === "switch") return `${sideLabel(parts[2], enemy)}, ${displayFromIdent(parts[2], enemy)} 등장.`;
-  if (tag === "move") return `${displayFromIdent(parts[2], enemy)}의 ${moveDisplayFromIdent(parts[2], parts[3], enemy)}!`;
-  if (tag === "-damage") return `${displayFromIdent(parts[2], enemy)} HP ${parts[3]}.`;
-  if (tag === "-heal") return `${displayFromIdent(parts[2], enemy)} 회복. HP ${parts[3]}.`;
-  if (tag === "faint") return `${displayFromIdent(parts[2], enemy)} 다운!`;
-  if (tag === "-miss") return `${displayFromIdent(parts[2], enemy)}의 공격은 빗나갔다.`;
-  if (tag === "-immune") return `${displayFromIdent(parts[2], enemy)}에게 효과가 없다.`;
-  if (tag === "-supereffective") return "효과가 굉장했다!";
-  if (tag === "-resisted") return "효과가 별로였다.";
-  if (tag === "-crit") return "급소에 맞았다!";
-  if (tag === "-mustrecharge") return `${displayFromIdent(parts[2], enemy)} 재충전이 필요하다.`;
-  if (tag === "cant") return `${displayFromIdent(parts[2], enemy)} 행동할 수 없다.`;
-  if (tag === "win") return parts[2] === "Player" ? "승리!" : "패배...";
-  return undefined;
+function manualTypeMultiplier(attackType: Pokemon["types"][number], defenderTypes: Pokemon["types"]) {
+  return defenderTypes.reduce((total, defenseType) => total * (typeChart[attackType]?.[defenseType] ?? 1), 1);
 }
 
-function uniqueConsecutiveLogs(logs: string[]) {
-  return logs.filter((line, index) => index === 0 || logs[index - 1] !== line);
+function manualEffectText(multiplier: number) {
+  if (multiplier === 0) return "효과가 없었다... ";
+  if (multiplier >= 2) return "효과가 굉장했다! ";
+  if (multiplier < 1) return "효과가 별로였다. ";
+  return "";
 }
 
-function pokemonNameFromIdent(ident: string) {
-  return ident.includes(": ") ? ident.split(": ").slice(1).join(": ") : ident;
-}
-
-function displayFromIdent(ident: string, enemy: Pokemon[]) {
-  const name = pokemonNameFromIdent(ident);
-  return pokemon.find((mon) => mon.name === name)?.displayName ?? enemy.find((mon) => mon.name === name)?.displayName ?? name;
-}
-
-function moveDisplayFromIdent(ident: string, moveName: string, enemy: Pokemon[]) {
-  const pokemonName = pokemonNameFromIdent(ident);
-  const mon = pokemon.find((row) => row.name === pokemonName) ?? enemy.find((row) => row.name === pokemonName);
-  const localMove = mon ? findLocalMove(mon, moveName, moveName) : undefined;
-  return localMove ? translatedMoveName(localMove.name, localMove.displayName) : translateMoveName(moveName);
-}
-
-function sideLabel(ident: string, enemy: Pokemon[]) {
-  return enemy.some((mon) => mon.name === pokemonNameFromIdent(ident)) || ident.startsWith("p2") ? "상대" : "내 파티";
-}
-
-function conditionPercent(condition: string) {
-  if (isFaintedCondition(condition)) return 0;
-  const match = condition.match(/^(\d+)\/(\d+)/);
-  if (!match) return 100;
-  const current = Number.parseInt(match[1], 10);
-  const max = Number.parseInt(match[2], 10);
-  return max > 0 ? Math.round((current / max) * 100) : 0;
-}
-
-function isFaintedCondition(condition: string) {
-  return condition.includes("fnt") || condition.startsWith("0 ");
-}
-
-function pokemonFromIdent(team: Pokemon[], ident: string) {
-  const name = pokemonNameFromIdent(ident);
-  return team.find((mon) => mon.name === name);
-}
-
-function normalizeMoveId(name: string) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function findLocalMove(mon: Pokemon, id: string, name: string) {
-  const target = normalizeMoveId(id || name);
-  return mon.movePool.find((move) => normalizeMoveId(move.name) === target || normalizeMoveId(move.displayName) === target);
-}
-
-const moveNameTranslations: Record<string, string> = {
-  aquajet: "아쿠아제트",
-  terablast: "테라버스트",
-  snore: "코골기",
-  whirlpool: "바다회오리",
-  hydropump: "하이드로펌프",
-  surf: "파도타기",
-  watergun: "물대포",
-  bubblebeam: "거품광선",
-  icebeam: "냉동빔",
-  blizzard: "눈보라",
-  hyperbeam: "파괴광선",
-  gigaimpact: "기가임팩트",
-  tackle: "몸통박치기",
-  splash: "튀어오르기",
-  protect: "방어",
-  thunderbolt: "10만볼트",
-  thunder: "번개",
-  quickattack: "전광석화",
-  flamethrower: "화염방사",
-  fireblast: "불대문자",
-  earthquake: "지진",
-  psychic: "사이코키네시스",
-  shadowball: "섀도볼",
-  solarbeam: "솔라빔",
-  doubleedge: "이판사판태클",
-};
-
-function translatedMoveName(name: string, displayName: string) {
-  const translated = translateMoveName(name);
-  if (translated !== name) return translated;
-  return hasHangul(displayName) ? displayName : translateMoveName(displayName);
-}
-
-function translateMoveName(name: string) {
-  return moveNameTranslations[normalizeMoveId(name)] ?? name;
-}
-
-function hasHangul(value: string) {
-  return /[가-힣]/.test(value);
-}
-
-function randomShowdownSeed() {
-  return Array.from({ length: 4 }, () => Math.floor(Math.random() * 0x10000));
+function nextAlive(team: Pokemon[], hp: Record<string, number>) {
+  return team.find((mon) => (hp[mon.name] ?? 0) > 0);
 }
 
 function initialManualHp(mon: Pokemon) {
