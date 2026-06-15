@@ -33,7 +33,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_SHOWDOWN_API_URL: ${{ vars.VITE_SHOWDOWN_API_URL }}
+          VITE_SHOWDOWN_API_URL: ${{ vars.VITE_SHOWDOWN_API_URL || 'https://pokeproject-showdown-api.onrender.com' }}
         run: npm run build
 
       - name: Configure Pages
