@@ -111,6 +111,25 @@ export function createShowdownHandler() {
     return choice;
   }
 
+  async function applyOpponentChoices(entry) {
+    const choices = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const request = latestRequest(entry.battle.snapshot(), "p2");
+      const choice = firstLegalChoice(request);
+      if (!choice) break;
+
+      entry.battle.write(`>p2 ${choice}`);
+      await waitForChunks(100);
+      entry.updatedAt = now();
+      choices.push(choice);
+
+      if (!request?.forceSwitch?.[0]) break;
+    }
+
+    return choices;
+  }
+
   return async function handleShowdownRequest(req, res, options = {}) {
     try {
       pruneBattles();
@@ -209,8 +228,8 @@ export function createShowdownHandler() {
 
       entry.battle.write(`>p1 ${body.choice}`);
       await waitForChunks(100);
-      const enemyChoice = await applyAutoChoice(entry, "p2");
-      sendJson(res, 200, { battleId: playerActionMatch[1], enemyChoice, chunks: entry.battle.snapshot() });
+      const enemyChoices = await applyOpponentChoices(entry);
+      sendJson(res, 200, { battleId: playerActionMatch[1], enemyChoice: enemyChoices[0], enemyChoices, chunks: entry.battle.snapshot() });
       return true;
     }
 

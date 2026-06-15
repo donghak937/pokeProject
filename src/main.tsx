@@ -1038,6 +1038,7 @@ function ManualBattleView({
             {moves.map((move, index) => {
               const localMove = findLocalMove(activePlayer, move.id, move.move);
               const moveType = localMove?.type ?? activePlayer.types[0];
+              const moveLabel = localMove ? translatedMoveName(localMove.name, localMove.displayName) : translateMoveName(move.move);
               return (
               <button
                 className="manual-move"
@@ -1047,7 +1048,7 @@ function ManualBattleView({
                 type="button"
                 onClick={() => onChoose(`move ${index + 1}`)}
               >
-                <strong>{localMove?.displayName ?? move.move}</strong>
+                <strong>{moveLabel}</strong>
                 <span>
                   {typeLabels[moveType]} · PP {move.pp ?? "-"} / {move.maxpp ?? "-"}
                   {move.disabled ? " · 사용 불가" : ""}
@@ -1590,7 +1591,7 @@ function formatShowdownLog(line: string, enemy: Pokemon[]) {
   if (tag === "start") return "전투 시작!";
   if (tag === "turn") return `${parts[2]}턴`;
   if (tag === "switch") return `${sideLabel(parts[2], enemy)}, ${displayFromIdent(parts[2], enemy)} 등장.`;
-  if (tag === "move") return `${displayFromIdent(parts[2], enemy)}의 ${parts[3]}!`;
+  if (tag === "move") return `${displayFromIdent(parts[2], enemy)}의 ${moveDisplayFromIdent(parts[2], parts[3], enemy)}!`;
   if (tag === "-damage") return `${displayFromIdent(parts[2], enemy)} HP ${parts[3]}.`;
   if (tag === "-heal") return `${displayFromIdent(parts[2], enemy)} 회복. HP ${parts[3]}.`;
   if (tag === "faint") return `${displayFromIdent(parts[2], enemy)} 다운!`;
@@ -1616,6 +1617,13 @@ function pokemonNameFromIdent(ident: string) {
 function displayFromIdent(ident: string, enemy: Pokemon[]) {
   const name = pokemonNameFromIdent(ident);
   return pokemon.find((mon) => mon.name === name)?.displayName ?? enemy.find((mon) => mon.name === name)?.displayName ?? name;
+}
+
+function moveDisplayFromIdent(ident: string, moveName: string, enemy: Pokemon[]) {
+  const pokemonName = pokemonNameFromIdent(ident);
+  const mon = pokemon.find((row) => row.name === pokemonName) ?? enemy.find((row) => row.name === pokemonName);
+  const localMove = mon ? findLocalMove(mon, moveName, moveName) : undefined;
+  return localMove ? translatedMoveName(localMove.name, localMove.displayName) : translateMoveName(moveName);
 }
 
 function sideLabel(ident: string, enemy: Pokemon[]) {
@@ -1647,6 +1655,48 @@ function normalizeMoveId(name: string) {
 function findLocalMove(mon: Pokemon, id: string, name: string) {
   const target = normalizeMoveId(id || name);
   return mon.movePool.find((move) => normalizeMoveId(move.name) === target || normalizeMoveId(move.displayName) === target);
+}
+
+const moveNameTranslations: Record<string, string> = {
+  aquajet: "아쿠아제트",
+  terablast: "테라버스트",
+  snore: "코골기",
+  whirlpool: "바다회오리",
+  hydropump: "하이드로펌프",
+  surf: "파도타기",
+  watergun: "물대포",
+  bubblebeam: "거품광선",
+  icebeam: "냉동빔",
+  blizzard: "눈보라",
+  hyperbeam: "파괴광선",
+  gigaimpact: "기가임팩트",
+  tackle: "몸통박치기",
+  splash: "튀어오르기",
+  protect: "방어",
+  thunderbolt: "10만볼트",
+  thunder: "번개",
+  quickattack: "전광석화",
+  flamethrower: "화염방사",
+  fireblast: "불대문자",
+  earthquake: "지진",
+  psychic: "사이코키네시스",
+  shadowball: "섀도볼",
+  solarbeam: "솔라빔",
+  doubleedge: "이판사판태클",
+};
+
+function translatedMoveName(name: string, displayName: string) {
+  const translated = translateMoveName(name);
+  if (translated !== name) return translated;
+  return hasHangul(displayName) ? displayName : translateMoveName(displayName);
+}
+
+function translateMoveName(name: string) {
+  return moveNameTranslations[normalizeMoveId(name)] ?? name;
+}
+
+function hasHangul(value: string) {
+  return /[가-힣]/.test(value);
 }
 
 function randomShowdownSeed() {
